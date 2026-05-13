@@ -1,0 +1,11 @@
+# 分析結果（Excel輸出，不追蹤）
+缺料分析0*/
+__pycache__/
+*.pyc
+
+# Claude 設定
+.claude/
+
+# 暫存檔
+*_tmp.*
+*.log
