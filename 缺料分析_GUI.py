@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 達特世生技 ─ 缺料分析系統 (GUI)
-版本: v1.2  2026-05-18
-更新: 新增 DRX-3D 兒童印刷布叫料試算頁籤（Pitch=12.5cm，M號實量）
+版本: v1.4  2026-05-18
+更新: DRX-3D 各尺寸Pitch對照（L=13.5cm已確認，M=12.5cm已確認，XL/S待確認）
 """
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext, messagebox
@@ -157,7 +157,7 @@ class App(tk.Tk):
                  font=FONT_TITLE, bg=C['header_bg'], fg=C['header_fg'],
                  pady=10).pack()
         tk.Label(h, text="自動比對庫存與訂單需求 ‧ 輸出缺料清單 Excel　　"
-                         "v1.3  2026-05-18（DRX-3D：印刷布損耗0.4%，其他0.3%）",
+                         "v1.4  2026-05-18（DRX-3D：L=13.5cm / M=12.5cm / XL.S待確認）",
                  font=FONT_SM, bg=C['header_bg'],
                  fg=C['sub_fg'], pady=0).pack(pady=(0, 8))
 
@@ -328,6 +328,47 @@ class App(tk.Tk):
         # 每次參數改變自動更新說明
         for var in self._drx_params.values():
             var.trace_add('write', lambda *_: self._update_drx_param_info())
+
+        # ── 尺寸 Pitch 快選列 ──
+        size_frame = tk.Frame(parent, bg='#F3E5F5',
+                              highlightbackground='#CE93D8',
+                              highlightthickness=1)
+        size_frame.pack(fill='x', padx=10, pady=(0, 4))
+
+        tk.Label(size_frame, text='  📏 各尺寸步距（點選自動帶入）：',
+                 font=FONT_SM, bg='#F3E5F5', fg='#4A148C',
+                 pady=4).pack(side='left')
+
+        # 尺寸定義：(標籤, pitch值, 狀態, 顏色)
+        SIZE_PITCHES = [
+            ('XL  待確認', None,  '⏳', '#BBBBBB'),
+            ('L = 13.5cm', 13.5, '✅', '#1E8449'),
+            ('M = 12.5cm', 12.5, '✅', '#1F6FBF'),
+            ('S  待確認',  None,  '⏳', '#BBBBBB'),
+        ]
+        for sz_label, sz_pitch, sz_icon, sz_color in SIZE_PITCHES:
+            if sz_pitch is not None:
+                btn = tk.Button(
+                    size_frame,
+                    text=f'{sz_icon} {sz_label}',
+                    font=('Microsoft JhengHei UI', 9, 'bold'),
+                    bg='white', fg=sz_color,
+                    relief='flat', padx=10, pady=3,
+                    cursor='hand2',
+                    highlightbackground=sz_color,
+                    highlightthickness=1,
+                    command=lambda p=sz_pitch: (
+                        self._drx_params['pitch'].set(str(p)),
+                        self._update_drx_param_info()
+                    )
+                )
+                btn.pack(side='left', padx=4, pady=4)
+            else:
+                tk.Label(size_frame,
+                         text=f'{sz_icon} {sz_label}',
+                         font=('Microsoft JhengHei UI', 9),
+                         bg='#F3E5F5', fg=sz_color,
+                         padx=10, pady=4).pack(side='left', padx=4)
 
         # ── 表格 ──
         tbl_outer = tk.Frame(parent, bg=C['bg'])
