@@ -3,7 +3,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 sys.stdout.reconfigure(encoding='utf-8')
 
-SRC = r'C:\Users\admin\OneDrive\桌面\惠雯表格\秘笈-布料試算.xlsx'
+SRC = r'C:\Users\admin\OneDrive\桌面\惠雯表格\秘笈-布料試算_NEW.xlsx'
 # 備份 + 用 temp 路徑開啟（避免中文路徑鎖定問題）
 bak = SRC.replace('.xlsx', '_bak.xlsx')
 shutil.copy2(SRC, bak)
@@ -49,6 +49,16 @@ def merge_row(ws, r, c1, c2, v, bg, fc='FFFFFF', sz=11, bold=True, align='left')
 # ── 從第 25 列開始新增內容（保留上面原有資料） ──
 R = 25
 
+# 先清除 R=25 以後的合併儲存格與內容，避免 MergedCell 衝突
+merged_to_remove = [rng for rng in ws.merged_cells.ranges
+                    if rng.min_row >= R]
+for rng in merged_to_remove:
+    ws.unmerge_cells(str(rng))
+# 清除儲存格內容
+for row in ws.iter_rows(min_row=R, max_row=ws.max_row):
+    for cell in row:
+        cell.value = None
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 分隔線
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -62,37 +72,61 @@ R += 1
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ws.row_dimensions[R].height = 30
 merge_row(ws, R, 1, 6,
-    '★  DRX-3D 兒童印刷外層布  叫料換算秘笈  ★  （老闆方法 Pitch = 12.5cm，M號實際量測）',
+    '★  DRX-3D 兒童印刷外層布  叫料換算秘笈  ★  （老闆方法 L=13.5cm / M=12.5cm 實測確認 | XL.S 待確認 | 損耗0.4%）',
     '5B2D8E', sz=13, align='center')
 R += 1
 
 # 警告列：舊算法 vs 新算法
 ws.row_dimensions[R].height = 20
 merge_row(ws, R, 1, 6,
-    '⚠  舊算法：M=730片/100m（步距13.7cm，損耗等同抓13%，過多！）  →  正確：Pitch=12.5cm（M號實量）= 800片/100m',
+    '⚠  舊算法：M=730片/100m（步距13.7cm，損耗等同抓13%，過多！）  →  正確：M=800片/100m(12.5cm) ／ L=741片/100m(13.5cm)',
     'FFF0F0', fc='CC2200', sz=10)
 R += 1
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 換算基準表
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-hdrs1 = ['成品規格', 'Pitch步距', '每100M片數', '每捲(1200M)\n理論片數', '3%損耗後\n可用片數', '換算盒數\n(20片/盒)']
+hdrs1 = ['成品規格', 'Pitch步距', '每100M片數', '1000M捲\n(0.4%損耗)', '800M捲\n(0.4%損耗)', '備註']
 for ci, h in enumerate(hdrs1, 1):
     hd(ws, R, ci, h, bg='5B2D8E')
 ws.row_dimensions[R].height = 28
 R += 1
 
-row_data = [
-    ('M 尺寸（兒童）', '12.5 cm', 800, '9,600 片', '9,312 片', '465 盒'),
+# 各尺寸 Pitch 對照（L=13.5cm已確認，M=12.5cm已確認，XL/S待確認）
+def calc_roll(pitch, roll_m, loss=0.004):
+    pieces = int(roll_m * 100 / pitch * (1 - loss))
+    boxes  = pieces // 20
+    return f'{pieces:,}片 ≈ {boxes}盒'
+
+size_rows = [
+    ('XL 尺寸', '待確認', '—', '—', '—', '⏳ 待HANK量測'),
+    ('L 尺寸（兒童）', '13.5 cm', f'{100*100//135*1 if False else round(100*100/13.5)}片',
+     calc_roll(13.5, 1000), calc_roll(13.5, 800), '✅ 2026-05-18確認'),
+    ('M 尺寸（兒童）', '12.5 cm', '800片',
+     calc_roll(12.5, 1000), calc_roll(12.5, 800), '✅ 2026-05-18確認'),
+    ('S 尺寸', '待確認', '—', '—', '—', '⏳ 待HANK量測'),
 ]
-for vals in row_data:
-    bgs = ['F3EEF8','F3EEF8','FFF9FF','E8D5F5','D4EFD4','D4EFD4']
-    fcs = ['222222','5B2D8E','5B2D8E','1C3F6B','1A5C3A','1A5C3A']
-    bolds = [True, True, True, True, True, True]
-    for ci, (v, bg, fc, bd_) in enumerate(zip(vals, bgs, fcs, bolds), 1):
-        dc(ws, R, ci, v, bg=bg, fc=fc, bold=bd_, align='center', sz=11)
-ws.row_dimensions[R].height = 22
-R += 2
+# 重新計算 L 每100M片數
+size_rows[1] = ('L 尺寸（兒童）', '13.5 cm',
+                f'{int(100*100/13.5)}片',
+                calc_roll(13.5, 1000), calc_roll(13.5, 800), '✅ 2026-05-18確認')
+
+row_bgs = [
+    (['FAFAFA','DDDDDD','DDDDDD','DDDDDD','DDDDDD','DDDDDD'],
+     ['888888','888888','888888','888888','888888','888888']),  # XL 待確認灰色
+    (['F3EEF8','F3EEF8','FFF9FF','D4EFD4','D4EFD4','E8F5E9'],
+     ['222222','1E8449','1E8449','1A5C3A','1A5C3A','1A5C3A']),  # L 綠色
+    (['F3EEF8','F3EEF8','FFF9FF','E8D5F5','E8D5F5','D6E8FB'],
+     ['222222','5B2D8E','5B2D8E','1C3F6B','1C3F6B','1C3F6B']),  # M 藍紫色
+    (['FAFAFA','DDDDDD','DDDDDD','DDDDDD','DDDDDD','DDDDDD'],
+     ['888888','888888','888888','888888','888888','888888']),  # S 待確認灰色
+]
+for (vals, (bgs, fcs)) in zip(size_rows, row_bgs):
+    for ci, (v, bg, fc) in enumerate(zip(vals, bgs, fcs), 1):
+        dc(ws, R, ci, v, bg=bg, fc=fc, bold=True, align='center', sz=10)
+    ws.row_dimensions[R].height = 22
+    R += 1
+R += 1
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 計算步驟
@@ -106,9 +140,9 @@ steps = [
      'D6E8FB', '1C3F6B'),
     ('STEP 2', '總盒數 × 20片/盒 = 總需求片數',
      'EEF5FF', '222222'),
-    ('STEP 3', '需求M數 = 總片數 × 12.5cm ÷ 100 ÷ 0.97（除掉3%損耗；實際損耗請記錄後調整）',
+    ('STEP 3', '需求M數 = 總片數 × Pitch(cm) ÷ 100 ÷ 0.996（除掉0.4%損耗）｜M用12.5 / L用13.5 / XL.S待確認',
      'D6E8FB', '222222'),
-    ('STEP 4', '捲數 = 需求M數 ÷ 1,200M，無條件進位（不夠就整捲補）',
+    ('STEP 4', '捲數 = 需求M數 ÷ 捲長(1000M或800M)，無條件進位（不夠就整捲補）',
      'EEF5FF', '222222'),
     ('STEP 5', '找片數最多的品相定捲數，其他品相依需求取1,200M整數倍叫料',
      'D6E8FB', '222222'),
@@ -131,43 +165,46 @@ R += 1
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ws.row_dimensions[R].height = 22
 merge_row(ws, R, 1, 6,
-    '📊  快速查表（M尺寸 / Pitch=12.5cm 實量 / 1200M每捲 / 3%損耗）',
+    '📊  快速查表（M尺寸 Pitch=12.5cm ／ L尺寸 Pitch=13.5cm ／ 捲長1000M ／ 損耗0.4%）',
     '1A5C3A', align='center')
 R += 1
 
-ref_hdrs = ['訂單盒數\n（加總）', '需求片數', '需M數\n(含3%損耗)', '需叫捲數', '實際可做\n片數', '實際可做\n盒數（多的當庫存）']
+ref_hdrs = ['訂單盒數\n（加總）', '需求片數',
+            'M號需M數\n(12.5cm/0.4%)', 'M號需捲數\n(1000M)',
+            'L號需M數\n(13.5cm/0.4%)', 'L號需捲數\n(1000M)']
 for ci, h in enumerate(ref_hdrs, 1):
     hd(ws, R, ci, h, bg='1A5C3A')
 ws.row_dimensions[R].height = 30
 R += 1
 
-PITCH  = 12.5   # cm（實際量測M號）
-LOSS   = 0.97
-ROLL_M = 1200
-PER_BOX = 20
+PITCH_M  = 12.5
+PITCH_L  = 13.5
+LOSS     = 0.996   # 0.4%損耗
+ROLL_M   = 1000
+PER_BOX  = 20
 
 box_targets = [100, 200, 300, 485, 600, 800, 1000, 1200, 1464, 1584, 1824, 2000, 2500, 3000]
 ref_a = 'E8F5E9'; ref_b = 'FFFFFF'
 for i, boxes in enumerate(box_targets):
-    pieces_need   = boxes * PER_BOX
-    meters_need   = pieces_need * PITCH / 100 / LOSS
-    rolls         = math.ceil(meters_need / ROLL_M)
-    actual_pieces = int(rolls * ROLL_M * 100 / PITCH * LOSS)
-    actual_boxes  = actual_pieces // PER_BOX
-    surplus       = actual_boxes - boxes
+    pieces_need = boxes * PER_BOX
+
+    m_need_M  = pieces_need * PITCH_M / 100 / LOSS
+    rolls_M   = math.ceil(m_need_M / ROLL_M)
+
+    m_need_L  = pieces_need * PITCH_L / 100 / LOSS
+    rolls_L   = math.ceil(m_need_L / ROLL_M)
 
     bg = ref_a if i % 2 == 0 else ref_b
     highlight = boxes in (1464, 1584, 1824)
     if highlight:
         bg = 'FFFDE7'
 
-    dc(ws, R, 1, boxes,          bg=bg, align='right', bold=highlight, fc='1C3F6B' if highlight else '222222', sz=10)
-    dc(ws, R, 2, pieces_need,    bg=bg, align='right', fmt='#,##0')
-    dc(ws, R, 3, int(meters_need+1), bg=bg, align='right', fmt='#,##0', fc='CC7700')
-    dc(ws, R, 4, rolls,          bg=bg, align='center', bold=True, fc='5B2D8E', sz=12)
-    dc(ws, R, 5, actual_pieces,  bg=bg, align='right', fmt='#,##0', fc='555555')
-    dc(ws, R, 6, f'{actual_boxes}盒（+{surplus}盒庫存）',
-       bg=bg, align='left', fc='1A5C3A', bold=highlight, sz=9)
+    dc(ws, R, 1, boxes,               bg=bg, align='right', bold=highlight, fc='1C3F6B' if highlight else '222222', sz=10)
+    dc(ws, R, 2, pieces_need,         bg=bg, align='right', fmt='#,##0')
+    dc(ws, R, 3, math.ceil(m_need_M), bg=bg, align='right', fmt='#,##0', fc='1F6FBF')
+    dc(ws, R, 4, rolls_M,             bg=bg, align='center', bold=True, fc='5B2D8E', sz=12)
+    dc(ws, R, 5, math.ceil(m_need_L), bg=bg, align='right', fmt='#,##0', fc='1E8449')
+    dc(ws, R, 6, rolls_L,             bg=bg, align='center', bold=True, fc='1A5C3A', sz=12)
     ws.row_dimensions[R].height = 18
     R += 1
 
@@ -244,7 +281,7 @@ order_results = [
 ]
 res_bg_a = 'D6E8FB'; res_bg_b = 'EEF5FF'
 for i, (name, pieces, stock_note) in enumerate(order_results):
-    m_need = pieces * PITCH / 100 / LOSS
+    m_need = pieces * PITCH_M / 100 / LOSS
     rolls  = math.ceil(m_need / ROLL_M)
     bg = res_bg_a if i % 2 == 0 else res_bg_b
     has_stock = '庫存足' in stock_note
