@@ -14,6 +14,19 @@ wb = load_workbook(tmp)
 SH = 'TN95 3D、醫用3D Ultra外層布產出成品數量換算表'
 ws = wb[SH]
 
+# ── TN95 換算表：B欄改為 100M，重算片數與盒數 ──
+# Row3: L 20片/盒  Row4: L 30片/盒  Row5: M 20片/盒  Row6: S 20片/盒
+tn95_rows = [
+    (3, 'L', 100, 680, 20,  680/20),     # 34盒
+    (4, 'L', 100, 680, 30,  680/30),     # 22.7盒
+    (5, 'M', 100, 730, 20,  730/20),     # 36.5盒
+    (6, 'S', 100, 790, 20,  790/20),     # 39.5盒
+]
+for (row, size, roll_m, pieces, per_box, boxes) in tn95_rows:
+    ws.cell(row, 2).value = f'{roll_m}M'           # B欄：100M
+    ws.cell(row, 3).value = f'{pieces}片'           # C欄：片數
+    ws.cell(row, 5).value = f'{boxes:.1f}盒'        # E欄：盒數
+
 # ── 樣式函數 ──
 def bd(style='thin', color='AAAAAA'):
     s = Side(style=style, color=color)
@@ -310,8 +323,10 @@ for col, w in zip('ABCDEF', [20, 12, 14, 14, 14, 22]):
     ws.column_dimensions[col].width = w
 
 OUT = r'C:\Users\admin\OneDrive\桌面\惠雯表格\秘笈-布料試算_NEW.xlsx'
+BAK = r'C:\Users\admin\OneDrive\桌面\惠雯表格\秘笈-布料試算_NEW_bak.xlsx'
 wb.save(tmp)
 shutil.copy2(tmp, OUT)
+shutil.copy2(tmp, BAK)   # _bak 同步更新為相同內容
 os.unlink(tmp)
 print(f'OK: {OUT}')
-print('備份原檔:', bak)
+print(f'BAK同步: {BAK}')
