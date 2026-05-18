@@ -1134,6 +1134,20 @@ for _, o in active.iterrows():
                         break
                 _ppm = _size_map.get(_size_ch, 730)  # 找不到尺寸預設 M=730
 
+                # ⚠️ TN95 修正（2026-05-14）：
+                #   TN95 口罩展開面積比普通 3D 大，3D 與 4D 用量相同
+                #   BOM驗算：
+                #     成人 L/XL  單色/MIX → 417片/100m（0.24m/片）
+                #     兒童/幼幼 M/S 單色   → 541片/100m（0.185m/片）
+                #     兒童/幼幼 M/S MIX多色 → 500片/100m（0.20m/片）
+                #   品號：AMDMSK-T3*（TN95 3D）或 AMDMSK-TN*（TN95 4D）
+                if (pno.startswith('AMDMSK-TN') or pno.startswith('AMDMSK-T3')
+                        or 'TN95' in pname):
+                    if _size_ch in ('M', 'S'):
+                        _ppm = 500 if n_bpp > 1 else 541  # MIX多色=500，單色=541
+                    else:
+                        _ppm = 417   # 成人 L/XL（單色或MIX相同）
+
                 # 每包片數：從品名「30入」取（盒/袋通用，直接用品名的入數）
                 _m_ppb = re.search(r'(\d+)\s*入', pname)
                 _ppb = int(_m_ppb.group(1)) if _m_ppb else 30
