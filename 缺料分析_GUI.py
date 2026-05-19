@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 達特世生技 ─ 缺料分析系統 (GUI)
-版本: v1.4  2026-05-18
-更新: DRX-3D 各尺寸Pitch對照（L=13.5cm已確認，M=12.5cm已確認，XL/S待確認）
+版本: v1.5  2026-05-19
+更新: 損耗率調整 — 印刷布8%、一般布料5%
 """
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext, messagebox
@@ -157,7 +157,7 @@ class App(tk.Tk):
                  font=FONT_TITLE, bg=C['header_bg'], fg=C['header_fg'],
                  pady=10).pack()
         tk.Label(h, text="自動比對庫存與訂單需求 ‧ 輸出缺料清單 Excel　　"
-                         "v1.4  2026-05-18（DRX-3D：L=13.5cm / M=12.5cm / XL.S待確認）",
+                         "v1.5  2026-05-19（DRX-3D：印刷布損耗8% / 一般布料5%）",
                  font=FONT_SM, bg=C['header_bg'],
                  fg=C['sub_fg'], pady=0).pack(pady=(0, 8))
 
@@ -304,7 +304,7 @@ class App(tk.Tk):
         params = [
             ('pitch',    '步距 Pitch (cm)', 12.5),
             ('roll_m',   '每捲長度 (M)',    1200),
-            ('loss_pct', '損耗率 (%)',       0.4),
+            ('loss_pct', '損耗率 (%)',       8.0),
             ('per_box',  '每盒片數',         20),
         ]
         for key, lbl, default in params:

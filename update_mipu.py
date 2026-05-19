@@ -85,7 +85,7 @@ R += 1
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ws.row_dimensions[R].height = 30
 merge_row(ws, R, 1, 6,
-    '★  DRX-3D 兒童印刷外層布  叫料換算秘笈  ★  （老闆方法 L=13.5cm / M=12.5cm 實測確認 | XL.S 待確認 | 損耗0.4%）',
+    '★  DRX-3D 兒童印刷外層布  叫料換算秘笈  ★  （老闆方法 L=13.5cm / M=12.5cm 實測確認 | XL.S 待確認 | 印刷布損耗8%）',
     '5B2D8E', sz=13, align='center')
 R += 1
 
@@ -106,7 +106,7 @@ ws.row_dimensions[R].height = 28
 R += 1
 
 # 各尺寸 Pitch 對照（L=13.5cm已確認，M=12.5cm已確認，XL/S待確認）
-def calc_roll(pitch, roll_m, loss=0.004):
+def calc_roll(pitch, roll_m, loss=0.08):
     pieces = int(roll_m * 100 / pitch * (1 - loss))
     boxes  = pieces // 20
     return f'{pieces:,}片 ≈ {boxes}盒'
@@ -178,13 +178,13 @@ R += 1
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ws.row_dimensions[R].height = 22
 merge_row(ws, R, 1, 6,
-    '📊  快速查表（M尺寸 Pitch=12.5cm ／ L尺寸 Pitch=13.5cm ／ 捲長1000M ／ 損耗0.4%）',
+    '📊  快速查表（M尺寸 Pitch=12.5cm ／ L尺寸 Pitch=13.5cm ／ 捲長1000M ／ 印刷布損耗8%）',
     '1A5C3A', align='center')
 R += 1
 
 ref_hdrs = ['訂單盒數\n（加總）', '需求片數',
-            'M號需M數\n(12.5cm/0.4%)', 'M號需捲數\n(1000M)',
-            'L號需M數\n(13.5cm/0.4%)', 'L號需捲數\n(1000M)']
+            'M號需M數\n(12.5cm/8%損)', 'M號需捲數\n(1000M)',
+            'L號需M數\n(13.5cm/8%損)', 'L號需捲數\n(1000M)']
 for ci, h in enumerate(ref_hdrs, 1):
     hd(ws, R, ci, h, bg='1A5C3A')
 ws.row_dimensions[R].height = 30
@@ -192,7 +192,8 @@ R += 1
 
 PITCH_M  = 12.5
 PITCH_L  = 13.5
-LOSS     = 0.996   # 0.4%損耗
+LOSS     = 0.92    # 印刷布損耗8%
+LOSS_GEN = 0.95    # 一般布料損耗5%
 ROLL_M   = 1000
 PER_BOX  = 20
 
@@ -201,10 +202,10 @@ ref_a = 'E8F5E9'; ref_b = 'FFFFFF'
 for i, boxes in enumerate(box_targets):
     pieces_need = boxes * PER_BOX
 
-    m_need_M  = pieces_need * PITCH_M / 100 / LOSS
+    m_need_M  = pieces_need * PITCH_M / 100 / LOSS   # 印刷布8%損耗
     rolls_M   = math.ceil(m_need_M / ROLL_M)
 
-    m_need_L  = pieces_need * PITCH_L / 100 / LOSS
+    m_need_L  = pieces_need * PITCH_L / 100 / LOSS   # 印刷布8%損耗
     rolls_L   = math.ceil(m_need_L / ROLL_M)
 
     bg = ref_a if i % 2 == 0 else ref_b
