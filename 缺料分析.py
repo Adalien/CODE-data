@@ -7,8 +7,26 @@ import pandas as pd
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from datetime import datetime
-import re, os, glob, sys, io, math
+import re, os, glob, sys, io, math, tempfile
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+# ─── Google Sheets 訂單總表設定 ────────────────────────────
+GSHEET_ORDER_ID  = "1Oka_VifHKgXtJNDvb0ZD4QR-4esmNRIZ3S8oXZ8EURc"
+GSHEET_ORDER_GID = "0"   # gid=0 為第一個工作表
+
+def fetch_gsheet_order():
+    """從 Google Sheets 下載訂單總表，回傳本地暫存 xlsx 路徑；失敗回傳 None"""
+    try:
+        import urllib.request
+        url = (f"https://docs.google.com/spreadsheets/d/{GSHEET_ORDER_ID}"
+               f"/export?format=xlsx&gid={GSHEET_ORDER_GID}")
+        tmp = os.path.join(tempfile.gettempdir(), "gsheet_order_tmp.xlsx")
+        urllib.request.urlretrieve(url, tmp)
+        print(f"  [訂單] ✅ 從 Google Sheets 下載成功")
+        return tmp
+    except Exception as e:
+        print(f"  [訂單] ⚠️  Google Sheets 下載失敗（{e}），改用本地檔案")
+        return None
 
 # ─── 設定 ─────────────────────────────────────────────────
 BASE   = r"C:\Users\admin\OneDrive\桌面\CODE資料"
@@ -49,14 +67,16 @@ box_path    = latest2(os.path.join(DESK, "盒子庫存*.xls"),
                       os.path.join(BASE, "盒子庫存*.xls"))
 bom_path    = latest(os.path.join(BASE, "製令總表_合併*.xlsx"))
 _CLD = r"C:\Users\admin\OneDrive\桌面\Claude紀錄"
-order_path  = (latest(os.path.join(DESK, "訂單生產總表 *.xlsx"))
+_gsheet_order = fetch_gsheet_order()
+order_path  = (_gsheet_order
+            or latest(os.path.join(DESK, "訂單生產總表 *.xlsx"))
             or latest(os.path.join(DESK, "訂單生產總表*.xlsx"))
             or latest(os.path.join(BASE, "訂單生產總表*.xlsx"))
-            or latest(os.path.join(_CLD, "訂單生產總表 *.xlsx"))
+            or latest(os.path.join(_CLD, "訂單生産總表 *.xlsx"))
             or latest(os.path.join(_CLD, "訂單生產總表*.xlsx")))
-# 主BOM：優先用 BOM20260323（最完整），其次原物料用途清單
-CLAUDE_DIR  = r"C:\Users\admin\OneDrive\桌面\Claude紀錄"
-master_path = (latest(os.path.join(CLAUDE_DIR, "BOM*.xlsx"))
+# 主BOM：優先找 CODE資料，其次 Claude紀錄（已搬移），再找原物料用途清單
+master_path = (latest(os.path.join(BASE, "BOM*.xlsx"))
+            or latest(os.path.join(_CLD, "BOM*.xlsx"))
             or latest(os.path.join(DESK, "*原物料用途清單*.xlsx"))
             or latest(os.path.join(BASE, "*原物料用途清單*.xlsx")))
 # INVI02：品號→品名 對照表（ERP系統品名）
@@ -71,13 +91,19 @@ rawmat_path = (latest(os.path.join(DESK, "原料類品號*.XLSX"))
             or latest(os.path.join(BASE, "原料類品號*.xlsx")))
 
 print("=== 找到檔案 ===")
-for lbl, p in [("原物料庫存", inv_path), ("耳繩庫存",  ear_path),
-               ("盒子庫存",   box_path), ("BOM製令",   bom_path),
-               ("訂單",       order_path),
-               ("主BOM",      master_path),
-               ("INVI02品名", invi_path),
-               ("原料類品號", rawmat_path)]:
-    print(f"  [{lbl}] {os.path.basename(p) if p else '❌ 未找到'}")
+_order_disp = ("Google Sheets（即時）" if order_path == _gsheet_order
+               else os.path.basename(order_path) if order_path else None)
+for lbl, p, disp in [
+        ("原物料庫存", inv_path,    None),
+        ("耳繩庫存",   ear_path,    None),
+        ("盒子庫存",   box_path,    None),
+        ("BOM製令",    bom_path,    None),
+        ("訂單",       order_path,  _order_disp),
+        ("主BOM",      master_path, None),
+        ("INVI02品名", invi_path,   None),
+        ("原料類品號", rawmat_path, None)]:
+    label = disp if disp else (os.path.basename(p) if p else '❌ 未找到')
+    print(f"  [{lbl}] {label}")
 
 if not all([inv_path, bom_path, order_path]):
     print("\n❌ 缺少必要檔案，請確認後重試"); sys.exit(1)
@@ -227,6 +253,10 @@ _ear_sec = None
 #    原物料庫存0504.xlsx 耳繩段落（3737/737/73714/1610）記錄為【箱數】
 #    實測：6箱 ≈ 16.27~17.05 kg，取平均值 16.66kg/6箱 = 2.777 kg/箱
 _EAR_KG_PER_BOX = (16.27 + 17.05) / 2 / 6   # ≈ 2.777 kg/箱
+# ⚠️ 綠沅耳繩庫存單位換算（2026-05-21）：
+#    耳繩庫存*.xls 綠沅工作表 B倉/M倉欄位記錄為【箱數】
+#    實測：14箱 ≈ 78 kg → 78/14 ≈ 5.571 kg/箱
+_LY_KG_PER_BOX = 78 / 14   # ≈ 5.571 kg/箱（綠沅6.0耳繩）
 for _row in ws_inv.iter_rows(values_only=True):
     if len(_row) < 2:
         continue
@@ -358,12 +388,13 @@ if ear_path:
                     if not nm:
                         continue
                     color_code = nm.group(1).strip()   # e.g. 淡紫235, 黑元筋
-                    qty = _parse_luyuan_qty(qty_cell)
+                    boxes = _parse_luyuan_qty(qty_cell)   # 取出箱數
+                    qty   = round(boxes * _LY_KG_PER_BOX, 2)   # 換算 kg
                     ear_table.append({'code': color_code,
                                       'qty':  qty,
                                       'raw':  name_cell,
                                       'section': '綠沅6.0'})
-                    print(f"  綠沅  code={color_code}  qty={qty}  [{name_cell}]")
+                    print(f"  綠沅  code={color_code}  箱={boxes}  qty={qty}kg  [{name_cell}]")
                 continue   # 綠沅已處理，跳過下方通用邏輯
 
             # ── 喬煒等一般工作表 ──
@@ -1846,10 +1877,79 @@ set_col_widths(ws_pick, [18, 30, 34, 8, 16, 8, 12, 18, 22], 'ABCDEFGHI')
 ws_pick.freeze_panes = 'A2'
 print(f"須領料: {n_pick} 筆訂單 | {len(all_品項)} 個品項")
 
+# ══════════════════════════════════════════════════════
+# 工作表: 已備料（領料欄有值，依備料日期倒序，最新在上）
+# ══════════════════════════════════════════════════════
+ws_prep = wb_out.create_sheet("已備料")
+
+if '領料' in order_df.columns:
+    _prep_mask = (order_df['領料'].notna()
+                  & ~order_df['領料'].astype(str).str.strip().isin(['', 'nan', 'NaT']))
+    df_prep = order_df[_prep_mask].copy()
+    # 解析領料日期用於排序（不能轉換的保留原值放最後）
+    df_prep['_dt'] = pd.to_datetime(df_prep['領料'], errors='coerce')
+    df_prep = df_prep.sort_values('_dt', ascending=False, na_position='last')
+    df_prep = df_prep.drop(columns=['_dt'])
+else:
+    df_prep = pd.DataFrame()
+
+# 選取顯示欄位（依序，有才取）
+_prep_col_keys = [0, '訂單日期', '序列', '通路', '品項', '品號', '品名',
+                  '生產量', '批號', '製令單號', '領料', '入庫', '交期', '出貨日', '備註']
+_prep_cols    = [c for c in _prep_col_keys if c in df_prep.columns]
+_prep_headers = ['訂單日期' if c == 0 else c for c in _prep_cols]
+
+# 大標題列
+_tc = ws_prep.cell(1, 1,
+    f"已備料清單（{datetime.now().strftime('%Y/%m/%d')}，共 {len(df_prep)} 筆，最新備料在上方）")
+_tc.font      = Font(bold=True, name='微軟正黑體', size=11, color='FFFFFFFF')
+_tc.fill      = PatternFill("solid", fgColor=C_H_DEEP)
+_tc.alignment = Alignment(horizontal='left', vertical='center')
+ws_prep.merge_cells(f"A1:{chr(64 + len(_prep_cols))}1")
+set_row_height(ws_prep, 1, 24)
+
+for _ci, _h in enumerate(_prep_headers, 1):
+    sh(ws_prep.cell(2, _ci, _h))
+set_row_height(ws_prep, 2, 27)
+
+_PREP_GREEN = "FFE8F5E9"   # 已完整備料 → 淡綠
+_HALF_YELL  = "FFFFF8E1"   # 領一半 → 淡黃
+
+for _rp, (_, _row) in enumerate(df_prep.iterrows(), 3):
+    _is_half = '半' in str(_row.get('領料', ''))
+    _bg = _HALF_YELL if _is_half else _PREP_GREEN
+    for _ci, _col in enumerate(_prep_cols, 1):
+        try:
+            _v = _row[_col]
+        except Exception:
+            _v = ''
+        # 清理值
+        try:
+            if pd.isna(_v):
+                _v = ''
+        except Exception:
+            pass
+        # 日期欄位：去掉時間，只留 YYYY/MM/DD
+        if isinstance(_v, (pd.Timestamp, datetime)):
+            try:
+                _v = pd.Timestamp(_v).strftime('%Y/%m/%d')
+            except Exception:
+                _v = ''
+        elif str(_v).strip() in ('nan', 'NaT', 'None', 'NaN', '0:00:00', ''):
+            _v = ''
+        _cell = ws_prep.cell(_rp, _ci, _v)
+        sd(_cell, bg=_bg)
+    set_row_height(ws_prep, _rp, 18)
+
+set_col_widths(ws_prep, [11, 7, 8, 16, 28, 36, 8, 12, 18, 14, 12, 12, 12, 30],
+               'ABCDEFGHIJKLMN')
+ws_prep.freeze_panes = 'A3'
+print(f"已備料: {len(df_prep)} 筆（含「領一半」）")
+
 # ── 儲存 ────────────────────────────────────────────────
 wb_out.save(out_file)
 print(f"\n{'='*55}")
 print(f"✅ 完成！")
 print(f"   輸出: {out_file}")
-print(f"   訂單: {len(active)} 筆 | 材料: {len(df_sum)} 項 | 缺料: {len(shortage)} 項")
+print(f"   訂單: {len(active)} 筆 | 材料: {len(df_sum)} 項 | 缺料: {len(shortage)} 項 | 已備料: {len(df_prep)} 筆")
 os.startfile(outdir)

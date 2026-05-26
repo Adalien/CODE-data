@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 達特世生技 ─ 缺料分析系統 (GUI)
-版本: v1.6  2026-05-19
-更新: 損耗率調整 — 印刷布6%、一般布料4%
+版本: v1.7  2026-05-26
+更新: 訂單生產總表改從 Google Sheets 即時抓取
 """
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext, messagebox
@@ -73,8 +73,28 @@ FILE_DEFS = [
       os.path.join(BASE, '盒子庫存*.xls')]),
 ]
 
+# ─── Google Sheets 訂單總表 ────────────────────────────────
+GSHEET_ORDER_ID = "1Oka_VifHKgXtJNDvb0ZD4QR-4esmNRIZ3S8oXZ8EURc"
+
+def check_gsheet_order():
+    """快速確認 Google Sheets 訂單可存取（HEAD 請求）"""
+    try:
+        import urllib.request
+        url = (f"https://docs.google.com/spreadsheets/d/{GSHEET_ORDER_ID}"
+               f"/export?format=xlsx&gid=0")
+        req = urllib.request.Request(url, method='HEAD')
+        urllib.request.urlopen(req, timeout=3)
+        return True
+    except Exception:
+        return False
+
 def detect_all():
-    return {k: latest2(*pats) for k, _, _, pats in FILE_DEFS}
+    result = {k: latest2(*pats) for k, _, _, pats in FILE_DEFS}
+    # 訂單：若 Google Sheets 可存取，以 "__gsheet__" 為標記（優先）
+    if '__order_override__' not in result:
+        if check_gsheet_order():
+            result['order'] = '__gsheet__'
+    return result
 
 
 # ══════════════════════════════════════════════════════════
@@ -157,7 +177,7 @@ class App(tk.Tk):
                  font=FONT_TITLE, bg=C['header_bg'], fg=C['header_fg'],
                  pady=10).pack()
         tk.Label(h, text="自動比對庫存與訂單需求 ‧ 輸出缺料清單 Excel　　"
-                         "v1.6  2026-05-19（DRX-3D：印刷布損耗6% / 一般布料4%）",
+                         "v1.7  2026-05-26（訂單總表：Google Sheets 即時同步）",
                  font=FONT_SM, bg=C['header_bg'],
                  fg=C['sub_fg'], pady=0).pack(pady=(0, 8))
 
@@ -271,6 +291,7 @@ class App(tk.Tk):
             ('orders',    '訂單數',  '#1A5276'),
             ('materials', '材料項數', '#1A5276'),
             ('shortage',  '缺料項數', '#922B21'),
+            ('prepared',  '已備料',  '#1E8449'),
         ]):
             cell = tk.Frame(f, bg=C['stat_bg'])
             cell.pack(side='left', expand=True, fill='x')
@@ -644,15 +665,39 @@ class App(tk.Tk):
 
     # ── 檔案偵測 ──────────────────────────────────────────
     def _refresh_files(self):
-        found = detect_all()
+        # 先用本地檔案快速顯示，再背景確認 Google Sheets
+        local_found = {k: latest2(*pats) for k, _, _, pats in FILE_DEFS}
         for key, label, req, _ in FILE_DEFS:
-            path = self._override.get(key) or found.get(key)
-            if path:
+            path = self._override.get(key) or local_found.get(key)
+            if key == 'order' and key not in self._override:
+                # 訂單：先顯示本地檔（若有），背景檢查 GSheets
+                self._file_name_vars[key].set(
+                    os.path.basename(path) if path else '🔄  檢查 Google Sheets…')
+                self._file_name_lbl[key].config(fg='#888')
+            elif path:
                 self._file_name_vars[key].set(os.path.basename(path))
                 self._file_name_lbl[key].config(fg=C['ok_fg'])
             else:
                 self._file_name_vars[key].set('❌  未找到')
                 self._file_name_lbl[key].config(fg=C['miss_fg'])
+
+        # 背景確認 Google Sheets
+        def _check():
+            ok = check_gsheet_order()
+            def _update():
+                if 'order' not in self._override:
+                    if ok:
+                        self._file_name_vars['order'].set('🌐  Google Sheets（即時同步）')
+                        self._file_name_lbl['order'].config(fg='#1F6FBF')
+                    elif not local_found.get('order'):
+                        self._file_name_vars['order'].set('❌  未找到（網路離線）')
+                        self._file_name_lbl['order'].config(fg=C['miss_fg'])
+                    else:
+                        self._file_name_vars['order'].set(
+                            os.path.basename(local_found['order']) + '（本地備用）')
+                        self._file_name_lbl['order'].config(fg=C['warn_fg'])
+            self.after(0, _update)
+        threading.Thread(target=_check, daemon=True).start()
 
     def _pick_file(self, key):
         ft = [('Excel/xls', '*.xlsx *.xls'), ('All', '*.*')]
@@ -734,7 +779,7 @@ class App(tk.Tk):
                     cwd=BASE, encoding='utf-8', errors='replace', bufsize=1)
 
                 result_path = None
-                orders = materials = shortage = None
+                orders = materials = shortage = prepared = None
 
                 for raw in proc.stdout:
                     line = raw.rstrip('\r\n')
@@ -747,6 +792,9 @@ class App(tk.Tk):
                         r'訂單:\s*(\d+)\s*筆.*材料:\s*(\d+)\s*項.*缺料:\s*(\d+)\s*項', line)
                     if m2:
                         orders, materials, shortage = m2.groups()
+                    m3 = re.search(r'已備料:\s*(\d+)\s*筆', line)
+                    if m3:
+                        prepared = m3.group(1)
 
                 proc.wait()
                 for f in _copied:
@@ -754,14 +802,14 @@ class App(tk.Tk):
                     except Exception: pass
 
                 self.after(0, self._finish, proc.returncode, result_path,
-                           orders, materials, shortage)
+                           orders, materials, shortage, prepared)
             except Exception as e:
                 self.after(0, self._log_write, f'❌  執行錯誤: {e}', 'err')
-                self.after(0, self._finish, -1, None, None, None, None)
+                self.after(0, self._finish, -1, None, None, None, None, None)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _finish(self, rc, result_path, orders, materials, shortage):
+    def _finish(self, rc, result_path, orders, materials, shortage, prepared=None):
         self.running = False
         self.prog.stop()
         self.run_btn.config(state='normal', text='▶   執行缺料分析')
@@ -774,7 +822,7 @@ class App(tk.Tk):
             self._log_write(f'   結果檔案：{result_path}', 'done')
             self.status_lbl.config(text=f'✅ 完成 {now}', fg=C['ok_fg'])
             self.time_lbl.config(text=f'完成時間：{now}')
-            if orders:   self._stat_vars['orders'].set(orders)
+            if orders:    self._stat_vars['orders'].set(orders)
             if materials: self._stat_vars['materials'].set(materials)
             if shortage:
                 self._stat_vars['shortage'].set(shortage)
@@ -782,6 +830,7 @@ class App(tk.Tk):
                 color = '#922B21' if n > 0 else C['ok_fg']
                 for w in self.winfo_children():
                     self._recolor_stat(w, 'shortage', color)
+            if prepared:  self._stat_vars['prepared'].set(prepared)
         else:
             self._log_write(f'⚠  執行結束（代碼: {rc}）請檢查上方 log', 'warn')
             self.status_lbl.config(text=f'⚠ 請檢查 log  {now}', fg=C['warn_fg'])
