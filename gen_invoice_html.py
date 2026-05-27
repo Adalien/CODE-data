@@ -388,8 +388,10 @@ if raw_json:
         html
     )
 
-# ── 存檔（桌面 + CODE資料）───────────────────────────────────
-for out in [HTML_DST, HTML_REPO]:
+# ── 存檔（桌面 + CODE資料 + 分享版）─────────────────────────
+SHARE_DST  = os.path.join(DESKTOP, '達特世生技_進貨明細查詢_2026.html')
+SHARE_REPO = os.path.join(BASE,    '達特世生技_進貨明細查詢_2026.html')
+for out in [HTML_DST, HTML_REPO, SHARE_DST, SHARE_REPO]:
     with open(out, 'w', encoding='utf-8') as f:
         f.write(html)
     print(f'[OK] 已存: {out}')
