@@ -427,8 +427,11 @@ if ear_path:
                     # 格式1: "412珊瑚橘*3" 排除單一大寫字母（倉別 B*3 M*7）
                     m = re.match(r'^(\S+)\s*\*\s*(\d+(?:\.\d+)?)', ce)
                     if m and m.group(1).strip() and not re.fullmatch(r'[A-Za-z]', m.group(1).strip()):
+                        _bx1 = float(m.group(2))
+                        _kg1 = round(_bx1 * _EAR_KG_PER_BOX, 2)
                         ear_table.append({'code': m.group(1).strip(),
-                                          'qty':  float(m.group(2)),
+                                          'qty':  _kg1,
+                                          'boxes': _bx1,
                                           'raw':  ce,
                                           'section': cur_section or ''})
                         continue
@@ -437,8 +440,11 @@ if ear_path:
                         if ci + 1 < len(row_list):
                             nxt = row_list[ci + 1]
                             if isinstance(nxt, (int, float)) and not pd.isna(nxt) and nxt > 0:
+                                _bx2 = float(nxt)
+                                _kg2 = round(_bx2 * _EAR_KG_PER_BOX, 2)
                                 ear_table.append({'code': ce,
-                                                  'qty':  float(nxt),
+                                                  'qty':  _kg2,
+                                                  'boxes': _bx2,
                                                   'raw':  f'{ce}*{nxt}',
                                                   'section': cur_section or ''})
     except Exception as e:
