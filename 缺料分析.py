@@ -257,6 +257,16 @@ _EAR_KG_PER_BOX = (16.27 + 17.05) / 2 / 6   # ≈ 2.777 kg/箱
 #    耳繩庫存*.xls 綠沅工作表 B倉/M倉欄位記錄為【箱數】
 #    實測：14箱 ≈ 78 kg → 78/14 ≈ 5.571 kg/箱
 _LY_KG_PER_BOX = 78 / 14   # ≈ 5.571 kg/箱（綠沅6.0耳繩）
+
+def kg_to_box(mat_code, kg_val):
+    """耳繩 kg → 箱數（無條件進位）；依品號判斷廠商換算率"""
+    import math
+    code = str(mat_code)
+    if 'LY' in code:
+        rate = _LY_KG_PER_BOX   # 綠沅 ≈ 5.571 kg/箱
+    else:
+        rate = _EAR_KG_PER_BOX  # 喬煒/其他 ≈ 2.777 kg/箱
+    return math.ceil(kg_val / rate) if kg_val > 0 else 0
 for _row in ws_inv.iter_rows(values_only=True):
     if len(_row) < 2:
         continue
@@ -1606,10 +1616,22 @@ for mtype in ['親膚', '熔噴', '外層', '耳繩', '印花外層', '盒子', 
         sys_name    = invi_name.get(item['材料品號'], '')
         order_boxes = mat_order_boxes.get(item['材料品號'], 0)
         order_cnt   = mat_order_count.get(item['材料品號'], 0)
+        # 耳繩：kg → 箱數顯示
+        if mtype == '耳繩':
+            disp_need = kg_to_box(item['材料品號'], item['總需備量'])
+            disp_stock = round(item['庫存量'] / (
+                _LY_KG_PER_BOX if 'LY' in str(item['材料品號']) else _EAR_KG_PER_BOX), 2)
+            disp_lack = kg_to_box(item['材料品號'], item['淨缺量'])
+            disp_unit = '箱'
+        else:
+            disp_need  = item['總需備量']
+            disp_stock = item['庫存量']
+            disp_lack  = item['淨缺量']
+            disp_unit  = item['單位']
         vals = [item['材料類型'], item['材料品號'], sys_name,
                 item['材料品名'],
-                item['庫存來源'], item['總需備量'], item['單位'],
-                item['庫存量'], item['淨缺量'], urgency,
+                item['庫存來源'], disp_need, disp_unit,
+                disp_stock, disp_lack, urgency,
                 order_boxes, order_cnt]
         for c, v in enumerate(vals, 1):
             sd(ws3.cell(r, c, v), bg=bg)
@@ -1629,7 +1651,7 @@ H4 = ['訂單批號','品號','品名','生產量(盒)',
       '親膚布\n品項數','親膚布\n總需捲',
       '熔噴布\n品項數','熔噴布\n總需捲',
       '外層布\n品項數','外層布\n總需捲',
-      '耳繩\n品項數', '耳繩\n總需kg']
+      '耳繩\n品項數', '耳繩\n總需箱']
 for c, h in enumerate(H4, 1):
     sh(ws4.cell(1, c, h))
 set_row_height(ws4, 1, 31.5)
@@ -1660,9 +1682,11 @@ for r, (_, o) in enumerate(active.iterrows(), 2):
     ear_n   = get_type('耳繩', '品項數')
     ear_q   = get_type('耳繩', '總需備量')
 
+    # 耳繩：kg → 箱（無法判斷廠商時用喬煒換算率）
+    ear_q_box = round(ear_q / _EAR_KG_PER_BOX, 1) if ear_q > 0 else 0
     vals = [o.get('批號',''), pno, o.get('品名',''), o['生產量'],
             skin_n, skin_q, melt_n, melt_q,
-            out_n,  out_q,  ear_n,  ear_q]
+            out_n,  out_q,  ear_n,  ear_q_box]
     for c, v in enumerate(vals, 1):
         cell = ws4.cell(r, c, v)
         # 按欄位設定材料類型底色
