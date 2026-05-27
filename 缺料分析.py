@@ -284,6 +284,7 @@ for _row in ws_inv.iter_rows(values_only=True):
                 _qty_kg = round(_boxes * _EAR_KG_PER_BOX, 2)
                 _raw_label = f'{_me.group(1)}*{_boxes:.0f}箱({_qty_kg:.1f}kg)'
                 _ear_pre.append({'code': _me.group(1), 'qty': _qty_kg,
+                                 'boxes': _boxes,
                                  'raw': _raw_label, 'section': _ear_sec})
 
 for row in _all_rows:
@@ -402,6 +403,7 @@ if ear_path:
                     qty   = round(boxes * _LY_KG_PER_BOX, 2)   # 換算 kg
                     ear_table.append({'code': color_code,
                                       'qty':  qty,
+                                      'boxes': boxes,
                                       'raw':  name_cell,
                                       'section': '綠沅6.0'})
                     print(f"  綠沅  code={color_code}  箱={boxes}  qty={qty}kg  [{name_cell}]")
@@ -1774,10 +1776,24 @@ if ear_table:
     set_row_height(ws5, r5, 18)
     r5 += 1
     for e in ear_table:
-        qty_e = e['qty']
+        qty_e = e['qty']   # kg（內部計算用）
+        # 顯示用：優先用已存的 boxes；其次從 raw 字串擷取；最後用 kg 反算
+        if 'boxes' in e:
+            disp_qty  = e['boxes']
+            disp_unit = '箱'
+        else:
+            _bm = re.search(r'\*\s*(\d+(?:\.\d+)?)\s*箱', str(e.get('raw', '')))
+            if _bm:
+                disp_qty  = float(_bm.group(1))
+                disp_unit = '箱'
+            else:
+                disp_qty  = qty_e   # fallback: 顯示 kg
+                disp_unit = 'kg'
+        # 備註加上 kg 參考值
+        kg_note = f'{qty_e:.1f}kg' if disp_unit == '箱' else ''
         row_bg = 'FFFFCCCC' if qty_e == 0 else C_EAR
-        note_e = '⚠ 庫存為零' if qty_e == 0 else ''
-        vals = ['耳繩', e['raw'], qty_e, 'kg', note_e]
+        note_e = '⚠ 庫存為零' if qty_e == 0 else kg_note
+        vals = ['耳繩', e['raw'], disp_qty, disp_unit, note_e]
         for c, v in enumerate(vals, 1):
             cell = ws5.cell(r5, c, v)
             sd(cell, bg=row_bg)
