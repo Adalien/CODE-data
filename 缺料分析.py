@@ -1726,6 +1726,33 @@ for c, h in enumerate(H5, 1):
     sh(ws5.cell(2, c, h))
 set_row_height(ws5, 2, 22)
 
+# ── 親膚：同規格（gsm×width）嘉谷+福綿 合併成一行 ──────────────
+_skin_merged = {}   # (gsm, width) → 合併後 entry
+_non_skin    = [it for it in inv_table if it['cat'] != '親膚']
+for it in inv_table:
+    if it['cat'] != '親膚':
+        continue
+    key = (it.get('gsm', 0), it.get('width', 0))
+    if key not in _skin_merged:
+        _skin_merged[key] = {
+            'gsm':   it.get('gsm',   0),
+            'width': it.get('width', 0),
+            'qty':   0,
+            'raw':   it['raw'],
+            'cat':   '親膚',
+            'kw':    '',
+            '_brands': [],
+        }
+    _skin_merged[key]['qty']      += it['qty']
+    _skin_merged[key]['_brands'].append(f"{it.get('kw','')}:{it['qty']:.0f}")
+# 備註標示各廠商分量（若有多家）
+for m in _skin_merged.values():
+    if len(m['_brands']) > 1:
+        m['note_extra'] = '(' + '+'.join(m['_brands']) + '捲)'
+    else:
+        m['note_extra'] = ''
+inv_table = _non_skin + list(_skin_merged.values())
+
 # 依類別排序輸出
 cat_order = {'熔噴': 0, '外層': 1, '親膚': 2}
 sorted_inv = sorted(inv_table, key=lambda x: (cat_order.get(x['cat'], 9), x['cat'], x.get('width', 0), x.get('kw', '')))
@@ -1760,6 +1787,9 @@ for it in sorted_inv:
     note = ''
     if qty == 0:
         note = '⚠ 庫存為零'
+    # 親膚合併後若有多家廠商，備註補上各廠分量
+    if cat == '親膚' and it.get('note_extra'):
+        note = (note + ' ' + it['note_extra']).strip()
 
     vals = [cat, raw, qty, unit, note]
     for c, v in enumerate(vals, 1):
