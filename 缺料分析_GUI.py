@@ -821,6 +821,21 @@ class App(tk.Tk):
             self._log_write(f'✅  分析完成！  [{now}]', 'done')
             self._log_write(f'   結果檔案：{result_path}', 'done')
             self.status_lbl.config(text=f'✅ 完成 {now}', fg=C['ok_fg'])
+            # 自動更新進貨明細查詢網頁
+            def _update_html():
+                try:
+                    gen_script = os.path.join(BASE, 'gen_invoice_html.py')
+                    if os.path.exists(gen_script):
+                        self.after(0, self._log_write, '🔄  更新進貨明細查詢網頁...', 'info')
+                        r = subprocess.run([PYTHON, gen_script],
+                                          capture_output=True, text=True, cwd=BASE)
+                        if r.returncode == 0:
+                            self.after(0, self._log_write, '✅  網頁已更新（進貨明細查詢.html）', 'done')
+                        else:
+                            self.after(0, self._log_write, f'⚠  網頁更新失敗: {r.stderr[:80]}', 'warn')
+                except Exception as _e:
+                    self.after(0, self._log_write, f'⚠  網頁更新錯誤: {_e}', 'warn')
+            threading.Thread(target=_update_html, daemon=True).start()
             self.time_lbl.config(text=f'完成時間：{now}')
             if orders:    self._stat_vars['orders'].set(orders)
             if materials: self._stat_vars['materials'].set(materials)
