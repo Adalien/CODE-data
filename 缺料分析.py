@@ -433,6 +433,7 @@ if ear_path:
                                           'qty':  _kg1,
                                           'boxes': _bx1,
                                           'raw':  ce,
+                                          'sheet': sn,
                                           'section': cur_section or ''})
                         continue
                     # 格式2: "335珊瑚橘" + 下欄數字
@@ -446,6 +447,7 @@ if ear_path:
                                                   'qty':  _kg2,
                                                   'boxes': _bx2,
                                                   'raw':  f'{ce}*{nxt}',
+                                                  'sheet': sn,
                                                   'section': cur_section or ''})
     except Exception as e:
         print(f"  耳繩庫存讀取錯誤: {e}")
@@ -555,9 +557,23 @@ def find_stock(mat_code, mat_name, roll_len=1500):
         cn_m = re.search(r'(\d{3,})', last_seg)
         if cn_m:
             cn = cn_m.group(1)
+            # 若品號含直徑(JWxxx)，優先找對應直徑的sheet（避免3.1mm/3.7mm同色號混淆）
+            diam_m2 = re.search(r'JW(\d{3})', code)
+            preferred_diam = f"{int(diam_m2.group(1))/10:.1f}" if diam_m2 else ''
+            candidates = []
             for e in ear_table:
-                if cn in e['raw']:
-                    return e['qty'], e['raw'][:40]
+                if cn not in e['raw']:
+                    continue
+                if preferred_diam and preferred_diam not in e.get('sheet', ''):
+                    continue
+                candidates.append(e)
+            if not candidates and preferred_diam:
+                # 直徑 sheet 未找到，回退全表
+                candidates = [e for e in ear_table if cn in e['raw']]
+            if candidates:
+                # 同色號有多筆（主倉＋零散批次），取庫存最大的那筆
+                best = max(candidates, key=lambda e: e['qty'])
+                return best['qty'], best['raw'][:40]
 
         # 方法2：從品號 JWxxx 取直徑 + 顏色中文比對（e.g. JW037+WHT→3.7白）
         diam_m = re.search(r'JW(\d{3})', code)
