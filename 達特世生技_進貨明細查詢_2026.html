@@ -414,7 +414,7 @@
     height: 100%;
     object-fit: contain;
     opacity: 0;
-    transition: opacity 0.7s ease-in-out;
+    transition: opacity 0.3s ease-in-out;
     border-radius: 8px;
   }
   .filter-mascot img.active { opacity: 1; }
@@ -1385,7 +1385,7 @@ document.addEventListener('DOMContentLoaded', function(){
     slides[cur].classList.remove('active');
     cur = (cur + 1) % slides.length;
     slides[cur].classList.add('active');
-  }, 3000);
+  }, 1500);
 });
 
 </script>
