@@ -399,12 +399,13 @@
   /* ── 搜尋列右側吉祥物圖片 ── */
   .filter-mascot {
     flex: 1;
-    min-width: 180px;
-    height: 80px;
+    min-width: 160px;
+    max-width: 100%;
+    height: 90px;
     position: relative;
     border-radius: 8px;
     overflow: hidden;
-    align-self: stretch;
+    align-self: center;
   }
   .filter-mascot img {
     position: absolute;
@@ -1377,7 +1378,7 @@ init();
 
 // ── 賤兔輪播 ──
 (function(){
-  var slides = document.querySelectorAll('#headerMascot img');
+  var slides = document.querySelectorAll('#filterMascot img');
   var cur = 0;
   setInterval(function(){
     slides[cur].classList.remove('active');
