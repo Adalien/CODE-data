@@ -1377,15 +1377,16 @@ function updateSummary() {
 init();
 
 // ── 賤兔輪播 ──
-(function(){
-  var slides = document.querySelectorAll('#filterMascot img');
+document.addEventListener('DOMContentLoaded', function(){
+  var slides = Array.from(document.querySelectorAll('#filterMascot img'));
+  if (slides.length < 2) return;
   var cur = 0;
   setInterval(function(){
     slides[cur].classList.remove('active');
-    cur = (cur+1) % slides.length;
+    cur = (cur + 1) % slides.length;
     slides[cur].classList.add('active');
-  }, 6000);
-})();
+  }, 3000);
+});
 
 </script>
 
