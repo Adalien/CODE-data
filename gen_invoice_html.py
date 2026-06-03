@@ -33,6 +33,17 @@ def fnum(v):
         return f'{n:,.2f}'.rstrip('0').rstrip('.')
     except: return esc(str(v))
 
+def clean_id(v):
+    """去掉製令單號/批號尾端多餘的 .0（Excel 數字轉字串問題）"""
+    if v is None: return ''
+    try:
+        if pd.isna(v): return ''
+    except: pass
+    s = str(v).strip()
+    if s in ('nan', 'None', ''): return ''
+    if s.endswith('.0') and s[:-2].replace('-','').isdigit(): return s[:-2]
+    return s
+
 def replace_tab(html, tab_id, new_inner):
     pat = rf'(<div id="{tab_id}"[^>]*>)(.*?)(</div><!--\s*/{tab_id}\s*-->)'
     return re.sub(pat, rf'\g<1>{new_inner}\g<3>', html, flags=re.DOTALL)
@@ -118,8 +129,13 @@ else:
 def gen_shortage(path, fname, date_str):
     """缺料清單"""
     df = pd.read_excel(path, sheet_name='缺料清單', header=1)
-    df.columns = ['材料類型','材料品號','品名(系統)','材料品名','庫存對應品項',
-                  '需備量','單位','現有庫存','缺少量','急迫程度','訂單量(盒)','訂單筆數']
+    # 欄位數依版本不同（13欄含最早交期，12欄舊版）
+    if len(df.columns) >= 13:
+        df.columns = ['材料類型','材料品號','品名(系統)','材料品名','庫存對應品項',
+                      '需備量','單位','現有庫存','缺少量','急迫程度','訂單量(盒)','訂單筆數','最早交期']
+    else:
+        df.columns = ['材料類型','材料品號','品名(系統)','材料品名','庫存對應品項',
+                      '需備量','單位','現有庫存','缺少量','急迫程度','訂單量(盒)','訂單筆數']
     counts = {'🔴':0,'🟠':0,'🟡':0,'📋':0}
     rows_html = ''
     for _, r in df.iterrows():
@@ -256,18 +272,24 @@ def gen_material(path, fname, date_str):
 def gen_pick(path, fname, date_str):
     """須領料"""
     df = pd.read_excel(path, sheet_name='須領料', header=0)
-    df.columns = ['品項','品號','品名','機台','生產時間','訂單量','差異(生產量)','製令單號','批號']
+    # 欄位數依版本不同（10欄含交期，9欄舊版）
+    has_deadline = len(df.columns) >= 10
+    if has_deadline:
+        df.columns = ['品項','品號','品名','機台','生產時間','交期','訂單量','差異(生產量)','製令單號','批號']
+    else:
+        df.columns = ['品項','品號','品名','機台','生產時間','訂單量','差異(生產量)','製令單號','批號']
     data_count = 0
     rows_html  = ''
+    colspan = 10 if has_deadline else 9
     for _, r in df.iterrows():
         item = str(r['品項']) if pd.notna(r['品項']) else ''
         if not item or item == 'nan': continue
         if str(item).startswith('▌'):
-            rows_html += f'<tr class="section-header"><td colspan="9">{esc(item)}</td></tr>\n'
+            rows_html += f'<tr class="section-header"><td colspan="{colspan}">{esc(item)}</td></tr>\n'
             continue
-        if item == '品項':      # 重複表頭行，略過
-            continue
+        if item == '品項': continue
         data_count += 1
+        dl_td = f'<td>{esc(r.get("交期",""))}</td>' if has_deadline else ''
         rows_html += (
             f'<tr>'
             f'<td>{esc(item)}</td>'
@@ -275,10 +297,11 @@ def gen_pick(path, fname, date_str):
             f'<td style="font-size:12px">{esc(r["品名"])}</td>'
             f'<td>{esc(r["機台"])}</td>'
             f'<td>{esc(r["生產時間"])}</td>'
+            f'{dl_td}'
             f'<td class="num">{fnum(r["訂單量"])}</td>'
             f'<td class="num">{fnum(r["差異(生產量)"])}</td>'
-            f'<td style="font-size:12px">{esc(r["製令單號"])}</td>'
-            f'<td style="font-size:12px">{esc(r["批號"])}</td>'
+            f'<td style="font-size:12px">{clean_id(r["製令單號"])}</td>'
+            f'<td style="font-size:12px">{clean_id(r["批號"])}</td>'
             f'</tr>\n'
         )
     stats = (
@@ -287,10 +310,12 @@ def gen_pick(path, fname, date_str):
         f'<strong style="color:#1a56a0">{data_count}</strong> 筆須領料訂單</span>'
         f'</div>\n'
     )
+    dl_th = '<th>交期</th>' if has_deadline else ''
     table = (
         f'<div class="table-wrap" style="margin:10px 18px 24px">'
         f'<div class="table-scroll"><table><thead><tr>'
         f'<th>品項</th><th>品號</th><th>品名</th><th>機台</th><th>生產時間</th>'
+        f'{dl_th}'
         f'<th class="num">訂單量</th><th class="num">差異</th><th>製令單號</th><th>批號</th>'
         f'</tr></thead><tbody>\n{rows_html}</tbody></table></div></div>'
     )
@@ -326,8 +351,8 @@ def gen_ready(path, fname, date_str):
             f'<td style="font-size:12px">{esc(r["品號"])}</td>'
             f'<td style="font-size:12px">{esc(r["品名"])}</td>'
             f'<td class="num">{fnum(r["生產量"])}</td>'
-            f'<td style="font-size:12px">{esc(r["批號"])}</td>'
-            f'<td style="font-size:12px">{esc(r["製令單號"])}</td>'
+            f'<td style="font-size:12px">{clean_id(r["批號"])}</td>'
+            f'<td style="font-size:12px">{clean_id(r["製令單號"])}</td>'
             f'<td>{ds(r["領料"])}</td>'
             f'<td>{ds(r["入庫"])}</td>'
             f'<td>{ds(r["交期"])}</td>'
@@ -352,6 +377,73 @@ def gen_ready(path, fname, date_str):
     )
     return data_source_div(fname, date_str) + stats + table
 
+def gen_orders(path, fname, date_str):
+    """訂單總表（訂單交期總覽工作表）"""
+    try:
+        df = pd.read_excel(path, sheet_name='訂單交期總覽', header=1)
+    except Exception:
+        return '<div style="padding:20px;color:#888">找不到訂單交期總覽工作表</div>'
+    df.columns = [str(c).strip() for c in df.columns]
+    def ds(v):
+        if pd.isna(v): return ''
+        try: return pd.to_datetime(v).strftime('%Y/%m/%d')
+        except:
+            s = str(v).strip()
+            return '' if s in ('nan','NaT','None','') else s
+    # 今日日期判斷（交期7天內標色）
+    from datetime import date
+    today = pd.Timestamp(date.today())
+    rows_html = ''
+    data_count = 0
+    for _, r in df.iterrows():
+        pno = str(r.get('品號','')).strip()
+        if not pno or pno in ('nan','None',''): continue
+        data_count += 1
+        dl_raw = r.get('交期','')
+        try:
+            dl_ts = pd.to_datetime(dl_raw) if dl_raw and str(dl_raw) not in ('nan','NaT','') else None
+        except: dl_ts = None
+        if dl_ts and (dl_ts - today).days <= 7:
+            cls = 'lack-severe'
+        else:
+            cls = ''
+        rows_html += (
+            f'<tr class="{cls}">'
+            f'<td>{ds(r.get("訂單日期",""))}</td>'
+            f'<td>{esc(r.get("序列",""))}</td>'
+            f'<td>{esc(r.get("通路",""))}</td>'
+            f'<td>{esc(r.get("品項",""))}</td>'
+            f'<td style="font-size:12px">{esc(r.get("品號",""))}</td>'
+            f'<td style="font-size:12px">{esc(r.get("品名",""))}</td>'
+            f'<td>{esc(r.get("機台",""))}</td>'
+            f'<td>{esc(r.get("生產時間",""))}</td>'
+            f'<td class="num">{fnum(r.get("訂單量",""))}</td>'
+            f'<td class="num">{fnum(r.get("生產量",""))}</td>'
+            f'<td style="font-size:12px">{clean_id(r.get("批號",""))}</td>'
+            f'<td style="font-size:12px">{clean_id(r.get("製令單號",""))}</td>'
+            f'<td>{ds(r.get("領料",""))}</td>'
+            f'<td>{ds(r.get("交期",""))}</td>'
+            f'<td>{ds(r.get("出貨日",""))}</td>'
+            f'<td style="font-size:12px">{esc(r.get("備註",""))}</td>'
+            f'</tr>\n'
+        )
+    stats = (
+        f'<div class="shortage-stats">'
+        f'<span style="font-size:13px;color:#4a5568">共 <strong style="color:#1a56a0">{data_count}</strong> 筆待生產訂單</span>'
+        f'<span class="stat-badge stat-red" style="margin-left:12px">🔴 交期7天內</span>'
+        f'</div>\n'
+    )
+    table = (
+        f'<div class="table-wrap" style="margin:10px 18px 24px">'
+        f'<div class="table-scroll"><table><thead><tr>'
+        f'<th>訂單日期</th><th>序列</th><th>通路</th><th>品項</th>'
+        f'<th>品號</th><th>品名</th><th>機台</th><th>生產時間</th>'
+        f'<th class="num">訂單量</th><th class="num">生產量</th>'
+        f'<th>批號</th><th>製令單號</th><th>領料</th><th>交期</th><th>出貨日</th><th>備註</th>'
+        f'</tr></thead><tbody>\n{rows_html}</tbody></table></div></div>'
+    )
+    return data_source_div(fname, date_str) + stats + table
+
 # ══════════════════════════════════════════════════════════════
 # 四、讀現有 HTML 並更新
 # ══════════════════════════════════════════════════════════════
@@ -362,6 +454,18 @@ with open(template_path, 'r', encoding='utf-8') as f:
 
 # ── 更新缺料分析五個頁籤 ──────────────────────────────────────
 if shortage_path:
+    # ── 新增「訂單總表」頁籤按鈕（若尚未存在）──
+    if 'tab-orders' not in html:
+        html = html.replace(
+            '<button class="tab-btn" onclick="switchTab(\'tab-shortage\', this)">🔴 缺料清單</button>',
+            '<button class="tab-btn" onclick="switchTab(\'tab-orders\', this)">📅 訂單總表</button>\n<button class="tab-btn" onclick="switchTab(\'tab-shortage\', this)">🔴 缺料清單</button>'
+        )
+        html = html.replace(
+            '<div id="tab-shortage" class="tab-content">',
+            '<div id="tab-orders" class="tab-content"></div><!--/tab-orders-->\n<div id="tab-shortage" class="tab-content">'
+        )
+    print('更新訂單總表頁籤...')
+    html = replace_tab(html, 'tab-orders',    gen_orders(shortage_path, shortage_fname, shortage_date))
     print('更新缺料清單頁籤...')
     html = replace_tab(html, 'tab-shortage',  gen_shortage(shortage_path, shortage_fname, shortage_date))
     print('更新庫存現況頁籤...')

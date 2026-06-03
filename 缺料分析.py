@@ -1360,6 +1360,19 @@ mat_order_count = (
     .groupby('材料品號')['品號'].nunique()
     .to_dict()
 )
+# ── 各缺料材料 → 最早交期（取涉及訂單中最近一筆交期）──
+if '交期' in active.columns:
+    _pno_dl = active[['品號', '交期']].copy()
+    _pno_dl['品號'] = _pno_dl['品號'].astype(str).str.strip()
+    _pno_dl['交期'] = pd.to_datetime(_pno_dl['交期'], errors='coerce')
+    _det_dl = _det_uniq.merge(_pno_dl, on='品號', how='left')
+    mat_earliest_deadline = (
+        _det_dl[_det_dl['材料品號'].isin(shortage['材料品號'])]
+        .groupby('材料品號')['交期'].min()
+        .to_dict()
+    )
+else:
+    mat_earliest_deadline = {}
 # ── 大樹訂單獨立缺料計算 ────────────────────────────────
 _datsu_pnos = set(df_det[df_det['通路'] == '大樹']['品號'])
 if _datsu_pnos:
@@ -1595,12 +1608,12 @@ t1 = ws3.cell(1, 1, title_text)
 t1.font = Font(bold=True, name='微軟正黑體', size=11, color='FFFFFFFF')
 t1.fill = PatternFill("solid", fgColor=C_H_DEEP)
 t1.alignment = Alignment(horizontal='left', vertical='center')
-ws3.merge_cells("A1:L1")
+ws3.merge_cells("A1:M1")
 set_row_height(ws3, 1, 24)
 
 # 第2行：欄位標題（深藍底白字）
 H3 = ['材料類型','材料品號','品名(系統)','材料品名','庫存對應品項',
-      '需備量','單位','現有庫存','缺少量','急迫程度','訂單量(盒)','訂單筆數']
+      '需備量','單位','現有庫存','缺少量','急迫程度','訂單量(盒)','訂單筆數','最早交期']
 for c, h in enumerate(H3, 1):
     sh(ws3.cell(2, c, h))
 set_row_height(ws3, 2, 27.75)
@@ -1624,11 +1637,17 @@ for mtype in ['親膚', '熔噴', '外層', '耳繩', '印花外層', '盒子', 
     grp.font = Font(bold=True, name='微軟正黑體', size=10, color='FFFFFFFF')
     grp.fill = PatternFill("solid", fgColor=C_H_DEEP)
     grp.alignment = Alignment(horizontal='left', vertical='center')
-    ws3.merge_cells(f"A{r}:L{r}")
+    ws3.merge_cells(f"A{r}:M{r}")
     set_row_height(ws3, r, 20)
     r += 1
 
-    for item in sorted(items, key=lambda x: -x['淨缺量']):
+    def _shortage_sort_key(x):
+        dt = mat_earliest_deadline.get(x['材料品號'], None)
+        if dt is None or pd.isna(dt):
+            return (1, pd.Timestamp('2099-12-31'), str(x['材料品號']))
+        return (0, pd.Timestamp(dt), str(x['材料品號']))
+
+    for item in sorted(items, key=_shortage_sort_key):
         if item['庫存來源'] == '需叫布':
             urgency = '📋 需叫布'
             bg = C_PRINT_BG
@@ -1640,6 +1659,12 @@ for mtype in ['親膚', '熔噴', '外層', '耳繩', '印花外層', '盒子', 
         sys_name    = invi_name.get(item['材料品號'], '')
         order_boxes = mat_order_boxes.get(item['材料品號'], 0)
         order_cnt   = mat_order_count.get(item['材料品號'], 0)
+        # 最早交期
+        _dl = mat_earliest_deadline.get(item['材料品號'], None)
+        if _dl is not None and not pd.isna(_dl):
+            deadline_str = pd.Timestamp(_dl).strftime('%Y/%m/%d')
+        else:
+            deadline_str = ''
         # 耳繩：kg → 箱數顯示
         if mtype == '耳繩':
             disp_need = kg_to_box(item['材料品號'], item['總需備量'])
@@ -1656,13 +1681,13 @@ for mtype in ['親膚', '熔噴', '外層', '耳繩', '印花外層', '盒子', 
                 item['材料品名'],
                 item['庫存來源'], disp_need, disp_unit,
                 disp_stock, disp_lack, urgency,
-                order_boxes, order_cnt]
+                order_boxes, order_cnt, deadline_str]
         for c, v in enumerate(vals, 1):
             sd(ws3.cell(r, c, v), bg=bg)
         set_row_height(ws3, r, 18)
         r += 1
 
-set_col_widths(ws3, [8,30,30,38,22,10,6,10,8,10,10,8], 'ABCDEFGHIJKL')
+set_col_widths(ws3, [8,30,30,38,22,10,6,10,8,10,10,8,12], 'ABCDEFGHIJKLM')
 
 # ══════════════════════════════════════════════════════
 # 工作表4 大樹缺料 / 工作表5 排除大樹缺料 ← 已移除（2026-04-30）
@@ -1863,8 +1888,8 @@ ws5.freeze_panes = 'A3'
 # ══════════════════════════════════════════════════════
 ws_pick = wb_out.create_sheet("須領料")
 
-PICK_HEADERS = ['品項', '品號', '品名', '機台', '生產時間', '訂單量', '差異(生產量)', '製令單號', '批號']
-PICK_COLS    = ['品項', '品號', '品名', '機台', '生產時間', '訂單量', '差異',         '製令單號', '批號']
+PICK_HEADERS = ['品項', '品號', '品名', '機台', '生產時間', '交期', '訂單量', '差異(生產量)', '製令單號', '批號']
+PICK_COLS    = ['品項', '品號', '品名', '機台', '生產時間', '交期', '訂單量', '差異',         '製令單號', '批號']
 
 # ── 準備資料（用去重複前的完整清單，確保每筆訂單都顯示）──
 pick_df = active_for_pick.copy()
@@ -1872,7 +1897,7 @@ for col in PICK_COLS:
     if col not in pick_df.columns:
         pick_df[col] = ''
 
-# 解析生產時間前段日期（用於排序）："4/20~4/30" → 420
+# 解析生產時間前段日期（用於次要排序）："4/20~4/30" → 420
 def _parse_prod_start(t):
     m = re.match(r'(\d+)[/月](\d+)', str(t).strip())
     if m:
@@ -1883,7 +1908,17 @@ pick_df['_sort_time'] = pick_df['生產時間'].apply(_parse_prod_start)
 # 品項空白者填「未分類」
 pick_df['品項'] = pick_df['品項'].fillna('').astype(str).str.strip()
 pick_df['品項'] = pick_df['品項'].replace('', '未分類')
-pick_df = pick_df.sort_values(['品項', '_sort_time'], na_position='last').reset_index(drop=True)
+# 交期解析（用於排序）
+pick_df['_交期_dt'] = pd.to_datetime(pick_df['交期'], errors='coerce')
+# 計算每個品項群組的最早交期（群組排序用）
+_grp_min_dl = pick_df.groupby('品項')['_交期_dt'].min().to_dict()
+pick_df['_grp_dl'] = pick_df['品項'].map(_grp_min_dl)
+# 排序：群組最早交期 → 品項 → 各筆交期 → 品號
+pick_df = pick_df.sort_values(
+    ['_grp_dl', '品項', '_交期_dt', '品號'],
+    ascending=[True, True, True, True],
+    na_position='last'
+).reset_index(drop=True)
 
 # 品項共有幾種
 all_品項 = pick_df['品項'].unique().tolist()
@@ -1894,7 +1929,7 @@ t0 = ws_pick.cell(1, 1, f"須領料清單（{datetime.now().strftime('%Y/%m/%d')
 t0.font      = Font(bold=True, name='微軟正黑體', size=11, color='FFFFFFFF')
 t0.fill      = PatternFill("solid", fgColor=C_H_DEEP)
 t0.alignment = Alignment(horizontal='left', vertical='center')
-ws_pick.merge_cells("A1:I1")
+ws_pick.merge_cells("A1:J1")
 set_row_height(ws_pick, 1, 26)
 
 # ── 底色設定 ──
@@ -1912,7 +1947,7 @@ for 品項, grp_data in pick_df.groupby('品項', sort=False):
     gc.font      = Font(bold=True, name='微軟正黑體', size=10, color='FFFFFFFF')
     gc.fill      = PatternFill("solid", fgColor=C_PICK_GRP)
     gc.alignment = Alignment(horizontal='left', vertical='center')
-    ws_pick.merge_cells(f"A{r}:I{r}")
+    ws_pick.merge_cells(f"A{r}:J{r}")
     set_row_height(ws_pick, r, 22)
     r += 1
 
@@ -1940,12 +1975,23 @@ for 品項, grp_data in pick_df.groupby('品項', sort=False):
         if 差異_v == '' or 差異_v == 0:
             差異_v = _v('生產量')
 
+        # 交期格式化
+        _dl_raw = _v('交期')
+        if _dl_raw != '' and not (isinstance(_dl_raw, float) and pd.isna(_dl_raw)):
+            try:
+                _dl_str = pd.Timestamp(_dl_raw).strftime('%Y/%m/%d')
+            except Exception:
+                _dl_str = str(_dl_raw)
+        else:
+            _dl_str = ''
+
         vals = [
             str(_v('品項')),
             str(_v('品號')),
             str(_v('品名')),
             str(_v('機台')),
             str(_v('生產時間')),
+            _dl_str,
             _v('訂單量'),
             差異_v,
             str(_v('製令單號')),
@@ -1956,7 +2002,7 @@ for 品項, grp_data in pick_df.groupby('品項', sort=False):
             dc.font      = Font(name='微軟正黑體', size=10)
             dc.fill      = PatternFill("solid", fgColor=bg)
             dc.alignment = Alignment(
-                horizontal='center' if c in (4, 5, 6, 7) else 'left',
+                horizontal='center' if c in (4, 5, 6, 7, 8) else 'left',
                 vertical='center')
         set_row_height(ws_pick, r, 19)
         r += 1
@@ -1965,7 +2011,7 @@ for 品項, grp_data in pick_df.groupby('品項', sort=False):
     ws_pick.row_dimensions[r].height = 6
     r += 1
 
-set_col_widths(ws_pick, [18, 30, 34, 8, 16, 8, 12, 18, 22], 'ABCDEFGHI')
+set_col_widths(ws_pick, [18, 30, 34, 8, 16, 12, 8, 12, 18, 22], 'ABCDEFGHIJ')
 ws_pick.freeze_panes = 'A2'
 print(f"須領料: {n_pick} 筆訂單 | {len(all_品項)} 個品項")
 
@@ -2037,6 +2083,88 @@ set_col_widths(ws_prep, [11, 7, 8, 16, 28, 36, 8, 12, 18, 14, 12, 12, 12, 30],
                'ABCDEFGHIJKLMN')
 ws_prep.freeze_panes = 'A3'
 print(f"已備料: {len(df_prep)} 筆（含「領一半」）")
+
+# ══════════════════════════════════════════════════════
+# 工作表0: 訂單交期總覽（第一張，依交期由近到遠排序）
+# ══════════════════════════════════════════════════════
+ws0 = wb_out.create_sheet("訂單交期總覽", 0)
+
+# 準備資料：全部訂單（含已領料），排除已入庫，有品號的列全部顯示
+_dl_df = order_df.dropna(subset=['品號']).copy()
+if '入庫' in _dl_df.columns:
+    _入庫_filled = (_dl_df['入庫'].notna() &
+                   ~_dl_df['入庫'].astype(str).str.strip().isin(['', 'nan', 'NaT', 'None']))
+    _dl_df = _dl_df[~_入庫_filled].copy()
+
+# 決定顯示欄位（依訂單生產總表實際欄位）
+_DL_WANT = ['訂單日期', '序列', '通路', '品項', '品號', '品名',
+            '機台', '生產時間', '訂單量', '生產量', '批號', '製令單號',
+            '領料', '入庫', '交期', '出貨日', '備註']
+_dl_cols = [c for c in _DL_WANT if c in _dl_df.columns]
+
+# 排序：交期 → 出貨日 → 品號（NaT 排最後）
+_dl_df['_交期s'] = pd.to_datetime(_dl_df['交期'],  errors='coerce')
+_dl_df['_出貨s'] = pd.to_datetime(_dl_df['出貨日'], errors='coerce')
+_dl_df['_品號s'] = _dl_df['品號'].astype(str)
+_dl_df = _dl_df.sort_values(['_交期s', '_出貨s', '_品號s'],
+                             ascending=[True, True, True],
+                             na_position='last').reset_index(drop=True)
+
+# ── 大標題 ──
+_dl_title = f"訂單交期總覽（{datetime.now().strftime('%Y/%m/%d')}，共 {len(_dl_df)} 筆待生產訂單）"
+_t0 = ws0.cell(1, 1, _dl_title)
+_t0.font      = Font(bold=True, name='微軟正黑體', size=11, color='FFFFFFFF')
+_t0.fill      = PatternFill("solid", fgColor="FF1A3A5C")
+_t0.alignment = Alignment(horizontal='left', vertical='center')
+ws0.merge_cells(f"A1:{chr(64+len(_dl_cols))}1")
+set_row_height(ws0, 1, 26)
+
+# ── 欄位標題 ──
+for _ci, _h in enumerate(_dl_cols, 1):
+    _hc = ws0.cell(2, _ci, _h)
+    _hc.font      = Font(bold=True, name='微軟正黑體', size=10, color='FFFFFFFF')
+    _hc.fill      = PatternFill("solid", fgColor="FF2C5282")
+    _hc.alignment = Alignment(horizontal='center', vertical='center')
+set_row_height(ws0, 2, 24)
+
+# ── 資料列 ──
+C_DL_ODD   = "FFEEF6FF"   # 淡藍（奇數行）
+C_DL_EVEN  = "FFFFFFFF"   # 白（偶數行）
+C_DL_URGENT = "FFFFEBEE"  # 淡紅（交期在7天內）
+_today_ts = pd.Timestamp(datetime.now().date())
+
+for _ri, (_, _row) in enumerate(_dl_df.iterrows(), 3):
+    # 交期在7天內 → 淡紅底色提醒
+    _dl_ts = _row.get('_交期s')
+    if pd.notna(_dl_ts) and (_dl_ts - _today_ts).days <= 7:
+        _bg = C_DL_URGENT
+    else:
+        _bg = C_DL_ODD if (_ri % 2 == 1) else C_DL_EVEN
+
+    for _ci, _col in enumerate(_dl_cols, 1):
+        _v = _row.get(_col, '')
+        if pd.isna(_v): _v = ''
+        # 日期欄格式化
+        if _col in ('訂單日期', '交期', '出貨日', '領料', '入庫') and isinstance(_v, (pd.Timestamp, datetime)):
+            try: _v = pd.Timestamp(_v).strftime('%Y/%m/%d')
+            except: _v = ''
+        elif str(_v).strip() in ('nan', 'NaT', 'None', 'NaN', '0:00:00', ''): _v = ''
+        _dc = ws0.cell(_ri, _ci, _v)
+        _dc.font      = Font(name='微軟正黑體', size=10)
+        _dc.fill      = PatternFill("solid", fgColor=_bg)
+        _dc.alignment = Alignment(horizontal='left', vertical='center')
+    set_row_height(ws0, _ri, 18)
+
+# 凍結第2列（標題列）
+ws0.freeze_panes = 'A3'
+# 欄寬
+_DL_WIDTHS = {'訂單日期':12,'序列':6,'通路':10,'品項':18,'品號':32,'品名':36,
+              '機台':7,'生產時間':14,'訂單量':8,'生產量':8,'批號':12,
+              '製令單號':16,'領料':12,'入庫':12,'交期':12,'出貨日':12,'備註':30}
+for _ci, _col in enumerate(_dl_cols, 1):
+    ws0.column_dimensions[chr(64+_ci)].width = _DL_WIDTHS.get(_col, 12)
+
+print(f"訂單交期總覽: {len(_dl_df)} 筆（交期7天內 淡紅提醒）")
 
 # ── 儲存 ────────────────────────────────────────────────
 wb_out.save(out_file)
