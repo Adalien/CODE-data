@@ -452,6 +452,49 @@ print(f'\n讀取 HTML 模板: {template_path}')
 with open(template_path, 'r', encoding='utf-8') as f:
     html = f.read()
 
+# ── 把 rabbit-zone 移到全域固定位置（所有 tab 都顯示）──────────
+if '<div class="rabbit-zone">' in html:
+    # 1. 取出 rabbit-zone HTML
+    _rz_start = html.find('<div class="rabbit-zone">')
+    _rz_end   = html.find('</div>', _rz_start) + 6
+    _rz_html  = html[_rz_start:_rz_end]
+
+    # 2. 從原本的位置移除（進貨明細 filter-card 裡）
+    html = html[:_rz_start] + html[_rz_end:]
+
+    # 3. 確保 CSS 為 fixed 定位
+    _fixed_css = '''
+  /* ── 賤兔固定在右下角（全頁可見）── */
+  .rabbit-zone-fixed {
+    position: fixed;
+    bottom: 18px;
+    right: 18px;
+    width: 160px;
+    height: 100px;
+    z-index: 999;
+    pointer-events: none;
+  }
+  .rabbit-zone-fixed .rabbit-slide {
+    position: absolute;
+    bottom: 0; left: 0;
+    width: 160px; height: 100px;
+    object-fit: contain;
+    opacity: 0;
+    transition: opacity 0.6s ease-in-out;
+  }
+  .rabbit-zone-fixed .rabbit-slide.active { opacity: 1; }
+'''
+    if 'rabbit-zone-fixed' not in html:
+        html = html.replace('</style>', _fixed_css + '</style>', 1)
+
+    # 4. 把 rabbit-zone 加回 body 底部（fixed 定位，全頁顯示）
+    _rz_fixed = _rz_html.replace(
+        '<div class="rabbit-zone">',
+        '<div class="rabbit-zone rabbit-zone-fixed">'
+    )
+    html = html.replace('</body>', _rz_fixed + '\n</body>', 1)
+    print('賤兔輪播已移至全頁固定位置（右下角）')
+
 # ── 更新缺料分析五個頁籤 ──────────────────────────────────────
 if shortage_path:
     # ── 新增「訂單總表」頁籤按鈕（若尚未存在）──
