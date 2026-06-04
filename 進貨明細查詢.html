@@ -260,7 +260,7 @@
     transition: opacity 0.6s ease-in-out;
   }
   .rabbit-slide.contain { object-fit: contain; }
-  .rabbit-slide.cover   { object-fit: cover; border-radius: 8px; }
+  .rabbit-slide.cover   { object-fit: contain; border-radius: 8px; }
   .rabbit-slide.active  { opacity: 1; }
 
 /* ── BOM Modal ── */
@@ -419,7 +419,7 @@
   /* ── 搜尋列右側吉祥物圖片 ── */
   .filter-mascot {
     flex: 0 0 320px;
-    min-height: 160px;
+    min-height: 200px;
     position: relative;
     overflow: hidden;
     align-self: stretch;
@@ -429,7 +429,7 @@
     inset: 0;
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
     opacity: 0;
     transition: opacity 0.3s ease-in-out;
   }
