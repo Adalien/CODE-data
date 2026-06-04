@@ -1067,9 +1067,7 @@
 <script>
 // ── 頁籤切換 ──
 function switchTab(tabId, btn) {
-  document.querySelectorAll('#filterMascot img').forEach(el => {
-    el.classList.remove('active');
-  });
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
   var el = document.getElementById(tabId);
   if (el) el.classList.add('active');
