@@ -1342,8 +1342,13 @@ for _desc, _codes in _desc_to_codes.items():
 
 df_sum['狀態'] = df_sum['淨缺量'].apply(lambda x: '✓ 充足' if x == 0 else '⚠ 缺料')
 
-# 不追蹤的品碼不列入缺料清單；「需叫布」印花外層一律列入（庫存恆為0）
-shortage = df_sum[(df_sum['淨缺量'] > 0) & (df_sum['庫存來源'] != '不追蹤')].copy()
+# 不追蹤的品碼不列入缺料清單
+# 「需叫布」印花外層（BPP-FM-XA*/ZA*）一律強制列入，不管淨缺量是否為0
+_need_order = df_sum['庫存來源'] == '需叫布'
+shortage = df_sum[
+    ((df_sum['淨缺量'] > 0) | _need_order) &
+    (df_sum['庫存來源'] != '不追蹤')
+].copy()
 
 # ── 各缺料材料 → 涉及訂單生產量（盒）──
 # df_det['生產量'] 已套用領一半 ÷ 2，每筆為 (品號, 材料品號, 生產量)
@@ -1408,7 +1413,8 @@ if _datsu_pnos:
             lambda x: x + '【共用】' if '【共用】' not in str(x) else x)
     df_sum_ds['狀態'] = df_sum_ds.get('淨缺量', pd.Series(dtype=float)).apply(
         lambda x: '✓ 充足' if x == 0 else '⚠ 缺料') if '淨缺量' in df_sum_ds.columns else None
-    shortage_ds = df_sum_ds[(df_sum_ds['淨缺量'] > 0) & (df_sum_ds['庫存來源'] != '不追蹤')].copy()
+    _need_order_ds = df_sum_ds['庫存來源'] == '需叫布'
+    shortage_ds = df_sum_ds[((df_sum_ds['淨缺量'] > 0) | _need_order_ds) & (df_sum_ds['庫存來源'] != '不追蹤')].copy()
     _ds_uniq = df_det_ds[['品號','材料品號','生產量']].drop_duplicates(subset=['品號','材料品號'])
     ds_order_boxes = (_ds_uniq[_ds_uniq['材料品號'].isin(shortage_ds['材料品號'])]
                       .groupby('材料品號')['生產量'].sum().round(0).astype(int).to_dict())
@@ -1452,7 +1458,8 @@ if not df_det_nds.empty:
             df_sum_nds.loc[_cm, '淨缺量'] = _cs
         df_sum_nds.loc[_mask, '庫存來源'] = df_sum_nds.loc[_mask, '庫存來源'].apply(
             lambda x: x + '【共用】' if '【共用】' not in str(x) else x)
-    shortage_nds = df_sum_nds[(df_sum_nds['淨缺量'] > 0) & (df_sum_nds['庫存來源'] != '不追蹤')].copy()
+    _need_order_nds = df_sum_nds['庫存來源'] == '需叫布'
+    shortage_nds = df_sum_nds[((df_sum_nds['淨缺量'] > 0) | _need_order_nds) & (df_sum_nds['庫存來源'] != '不追蹤')].copy()
     _nds_uniq = df_det_nds[['品號','材料品號','生產量']].drop_duplicates(subset=['品號','材料品號'])
     nds_order_boxes = (_nds_uniq[_nds_uniq['材料品號'].isin(shortage_nds['材料品號'])]
                        .groupby('材料品號')['生產量'].sum().round(0).astype(int).to_dict())
