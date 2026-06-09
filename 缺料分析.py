@@ -10,6 +10,18 @@ from datetime import datetime
 import re, os, glob, sys, io, math, tempfile
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
+# ── 修補 openpyxl：相容鼎新ERP匯出的 Excel（樣式名稱可能為 None）──
+try:
+    from openpyxl.styles.named_styles import _NamedCellStyle
+    _orig_ncs_init = _NamedCellStyle.__init__
+    def _patched_ncs_init(self, **kw):
+        if kw.get('name') is None:
+            kw['name'] = '_unnamed_'
+        _orig_ncs_init(self, **kw)
+    _NamedCellStyle.__init__ = _patched_ncs_init
+except Exception:
+    pass
+
 # ─── Google Sheets 訂單總表設定 ────────────────────────────
 GSHEET_ORDER_ID  = "1Oka_VifHKgXtJNDvb0ZD4QR-4esmNRIZ3S8oXZ8EURc"
 GSHEET_ORDER_GID = "0"   # gid=0 為第一個工作表
@@ -956,25 +968,46 @@ master_bom   = None # 備用BOM DataFrame
 
 if master_path:
     print(f"\n讀取主BOM: {os.path.basename(master_path)}")
-    mb_raw = pd.read_excel(master_path, sheet_name=0)
+    # 自動偵測標題行：找第一個含「主件品號」或「元件品號」的行
+    _mb_probe = pd.read_excel(master_path, sheet_name=0, header=None, nrows=10)
+    _hdr_row = 0
+    for _i, _r in _mb_probe.iterrows():
+        _vals = [str(v) for v in _r.tolist()]
+        if any('主件品號' in v or '元件品號' in v or '主件品號' in v for v in _vals):
+            _hdr_row = _i
+            break
+    mb_raw = pd.read_excel(master_path, sheet_name=0, header=_hdr_row)
     # 清理欄位名稱（移除全形空格 + 一般空白）
     mb_raw.columns = [re.sub(r'\s+', '', str(c)) for c in mb_raw.columns]
-    print(f"  主BOM 欄位: {mb_raw.columns.tolist()}")
+    print(f"  主BOM 欄位(header={_hdr_row}): {mb_raw.columns.tolist()}")
 
-    # 採購件行（主件品號為空）→ 取規格
-    mask_purch = mb_raw['主件品號'].isna() | (mb_raw['主件品號'].astype(str).str.strip() == '')
-    for _, row in mb_raw[mask_purch].iterrows():
-        code = str(row['元件品號']).strip()
-        spec = str(row.get('規格', '')).strip()
-        if code and spec and spec.lower() != 'nan':
-            spec_lookup[code] = spec
+    # 判斷 BOM 格式：舊格式有「元件品號」欄，新格式無
+    _has_old_fmt = '元件品號' in mb_raw.columns and '損耗率%' in mb_raw.columns
 
-    # 自製件行 → 備用BOM（製令總表找不到的品號可從此補用）
-    mb_mfg = mb_raw[~mask_purch].copy()
-    mb_mfg['損耗率%']  = pd.to_numeric(mb_mfg['損耗率%'],  errors='coerce').fillna(0)
-    mb_mfg['組成用量'] = pd.to_numeric(mb_mfg['組成用量'], errors='coerce').fillna(0)
-    master_bom = mb_mfg
-    print(f"  規格查找表: {len(spec_lookup)} 筆  |  備用BOM: {len(master_bom)} 筆")
+    if _has_old_fmt:
+        # 舊格式：採購件行（主件品號為空）→ 取規格
+        mask_purch = mb_raw['主件品號'].isna() | (mb_raw['主件品號'].astype(str).str.strip() == '')
+        for _, row in mb_raw[mask_purch].iterrows():
+            code = str(row['元件品號']).strip()
+            spec = str(row.get('規格', '')).strip()
+            if code and spec and spec.lower() != 'nan':
+                spec_lookup[code] = spec
+        # 自製件行 → 備用BOM
+        mb_mfg = mb_raw[~mask_purch].copy()
+        mb_mfg['損耗率%']  = pd.to_numeric(mb_mfg['損耗率%'],  errors='coerce').fillna(0)
+        mb_mfg['組成用量'] = pd.to_numeric(mb_mfg['組成用量'], errors='coerce').fillna(0)
+        master_bom = mb_mfg
+    else:
+        # 新格式（BOM用量資料建立作業）：只取規格對照表
+        print("  ⚠ 新格式BOM（無元件品號/損耗率欄），僅載入規格查找表")
+        for _, row in mb_raw.iterrows():
+            code = str(row.get('主件品號', '')).strip()
+            spec = str(row.get('規格', '')).strip()
+            if code and code.lower() not in ('nan', '') and spec and spec.lower() != 'nan':
+                spec_lookup[code] = spec
+        master_bom = None
+    _bom_cnt = len(master_bom) if master_bom is not None else 0
+    print(f"  規格查找表: {len(spec_lookup)} 筆  |  備用BOM: {_bom_cnt} 筆")
     # 印出耳繩規格（供確認 m/kg）
     ear_specs = {k: v for k, v in spec_lookup.items() if k.startswith('BEL')}
     if ear_specs:
@@ -986,6 +1019,20 @@ else:
 
 # ── 3-B. 每日製令BOM ──────────────────────────────────────
 print(f"\n讀取製令BOM: {os.path.basename(bom_path)}")
+# 確認工作表存在；若只有「單頭資料」（新格式），嘗試找上一版含BOM資料的檔案
+import openpyxl as _opx
+_wb_chk = _opx.load_workbook(bom_path, read_only=True)
+_sheets  = _wb_chk.sheetnames
+_wb_chk.close()
+if "BOM資料" not in _sheets:
+    print(f"  ⚠ 工作表 'BOM資料' 不存在（現有: {_sheets}），改找舊版製令...")
+    _alt = sorted(glob.glob(os.path.join(BASE, "製令總表_合併*.xlsx")), reverse=True)
+    bom_path = next((p for p in _alt if p != bom_path and
+                     "BOM資料" in _opx.load_workbook(p, read_only=True).sheetnames), None)
+    if bom_path:
+        print(f"  → 改用: {os.path.basename(bom_path)}")
+    else:
+        raise FileNotFoundError("找不到含 BOM資料 工作表的製令總表，請確認檔案。")
 bom_df = pd.read_excel(bom_path, sheet_name="BOM資料")
 print(f"  製令BOM 欄位: {bom_df.columns.tolist()}")
 
@@ -1895,8 +1942,8 @@ ws5.freeze_panes = 'A3'
 # ══════════════════════════════════════════════════════
 ws_pick = wb_out.create_sheet("須領料")
 
-PICK_HEADERS = ['品項', '品號', '品名', '機台', '生產時間', '交期', '訂單量', '差異(生產量)', '製令單號', '批號']
-PICK_COLS    = ['品項', '品號', '品名', '機台', '生產時間', '交期', '訂單量', '差異',         '製令單號', '批號']
+PICK_HEADERS = ['品項', '品號', '品名', '機台', '生產時間', '出貨日', '交期', '訂單量', '差異(生產量)', '製令單號', '批號']
+PICK_COLS    = ['品項', '品號', '品名', '機台', '生產時間', '出貨日', '交期', '訂單量', '差異',         '製令單號', '批號']
 
 # ── 準備資料（用去重複前的完整清單，確保每筆訂單都顯示）──
 pick_df = active_for_pick.copy()
@@ -1915,15 +1962,19 @@ pick_df['_sort_time'] = pick_df['生產時間'].apply(_parse_prod_start)
 # 品項空白者填「未分類」
 pick_df['品項'] = pick_df['品項'].fillna('').astype(str).str.strip()
 pick_df['品項'] = pick_df['品項'].replace('', '未分類')
-# 交期解析（用於排序）
+# 出貨日解析（主排序）
+pick_df['_出貨_dt'] = pd.to_datetime(pick_df['出貨日'], errors='coerce')
+# 交期解析（副排序）
 pick_df['_交期_dt'] = pd.to_datetime(pick_df['交期'], errors='coerce')
-# 計算每個品項群組的最早交期（群組排序用）
-_grp_min_dl = pick_df.groupby('品項')['_交期_dt'].min().to_dict()
-pick_df['_grp_dl'] = pick_df['品項'].map(_grp_min_dl)
-# 排序：群組最早交期 → 品項 → 各筆交期 → 品號
+# 計算每個品項群組的最早出貨日（群組排序用，無出貨日則用交期）
+_grp_min_ship = pick_df.groupby('品項')['_出貨_dt'].min()
+_grp_min_dl   = pick_df.groupby('品項')['_交期_dt'].min()
+_grp_sort = _grp_min_ship.combine(_grp_min_dl, lambda s, d: s if pd.notna(s) else d).to_dict()
+pick_df['_grp_dl'] = pick_df['品項'].map(_grp_sort)
+# 排序：群組最早出貨日 → 品項 → 各筆出貨日 → 交期 → 品號
 pick_df = pick_df.sort_values(
-    ['_grp_dl', '品項', '_交期_dt', '品號'],
-    ascending=[True, True, True, True],
+    ['_grp_dl', '品項', '_出貨_dt', '_交期_dt', '品號'],
+    ascending=[True, True, True, True, True],
     na_position='last'
 ).reset_index(drop=True)
 
@@ -1936,7 +1987,7 @@ t0 = ws_pick.cell(1, 1, f"須領料清單（{datetime.now().strftime('%Y/%m/%d')
 t0.font      = Font(bold=True, name='微軟正黑體', size=11, color='FFFFFFFF')
 t0.fill      = PatternFill("solid", fgColor=C_H_DEEP)
 t0.alignment = Alignment(horizontal='left', vertical='center')
-ws_pick.merge_cells("A1:J1")
+ws_pick.merge_cells("A1:K1")
 set_row_height(ws_pick, 1, 26)
 
 # ── 底色設定 ──
@@ -1954,7 +2005,7 @@ for 品項, grp_data in pick_df.groupby('品項', sort=False):
     gc.font      = Font(bold=True, name='微軟正黑體', size=10, color='FFFFFFFF')
     gc.fill      = PatternFill("solid", fgColor=C_PICK_GRP)
     gc.alignment = Alignment(horizontal='left', vertical='center')
-    ws_pick.merge_cells(f"A{r}:J{r}")
+    ws_pick.merge_cells(f"A{r}:K{r}")
     set_row_height(ws_pick, r, 22)
     r += 1
 
@@ -1982,6 +2033,16 @@ for 品項, grp_data in pick_df.groupby('品項', sort=False):
         if 差異_v == '' or 差異_v == 0:
             差異_v = _v('生產量')
 
+        # 出貨日格式化
+        _ship_raw = _v('出貨日')
+        if _ship_raw != '' and not (isinstance(_ship_raw, float) and pd.isna(_ship_raw)):
+            try:
+                _ship_str = pd.Timestamp(_ship_raw).strftime('%Y/%m/%d')
+            except Exception:
+                _ship_str = str(_ship_raw)
+        else:
+            _ship_str = ''
+
         # 交期格式化
         _dl_raw = _v('交期')
         if _dl_raw != '' and not (isinstance(_dl_raw, float) and pd.isna(_dl_raw)):
@@ -1998,6 +2059,7 @@ for 品項, grp_data in pick_df.groupby('品項', sort=False):
             str(_v('品名')),
             str(_v('機台')),
             str(_v('生產時間')),
+            _ship_str,
             _dl_str,
             _v('訂單量'),
             差異_v,
@@ -2009,7 +2071,7 @@ for 品項, grp_data in pick_df.groupby('品項', sort=False):
             dc.font      = Font(name='微軟正黑體', size=10)
             dc.fill      = PatternFill("solid", fgColor=bg)
             dc.alignment = Alignment(
-                horizontal='center' if c in (4, 5, 6, 7, 8) else 'left',
+                horizontal='center' if c in (4, 5, 6, 7, 8, 9) else 'left',
                 vertical='center')
         set_row_height(ws_pick, r, 19)
         r += 1
@@ -2018,7 +2080,7 @@ for 品項, grp_data in pick_df.groupby('品項', sort=False):
     ws_pick.row_dimensions[r].height = 6
     r += 1
 
-set_col_widths(ws_pick, [18, 30, 34, 8, 16, 12, 8, 12, 18, 22], 'ABCDEFGHIJ')
+set_col_widths(ws_pick, [18, 30, 34, 8, 16, 12, 12, 8, 12, 18, 22], 'ABCDEFGHIJK')
 ws_pick.freeze_panes = 'A2'
 print(f"須領料: {n_pick} 筆訂單 | {len(all_品項)} 個品項")
 
@@ -2109,16 +2171,16 @@ _DL_WANT = ['訂單日期', '序列', '通路', '品項', '品號', '品名',
             '領料', '入庫', '交期', '出貨日', '備註']
 _dl_cols = [c for c in _DL_WANT if c in _dl_df.columns]
 
-# 排序：交期 → 出貨日 → 品號（NaT 排最後）
+# 排序：出貨日 → 交期 → 品號（NaT 排最後）
 _dl_df['_交期s'] = pd.to_datetime(_dl_df['交期'],  errors='coerce')
 _dl_df['_出貨s'] = pd.to_datetime(_dl_df['出貨日'], errors='coerce')
 _dl_df['_品號s'] = _dl_df['品號'].astype(str)
-_dl_df = _dl_df.sort_values(['_交期s', '_出貨s', '_品號s'],
+_dl_df = _dl_df.sort_values(['_出貨s', '_交期s', '_品號s'],
                              ascending=[True, True, True],
                              na_position='last').reset_index(drop=True)
 
 # ── 大標題 ──
-_dl_title = f"訂單交期總覽（{datetime.now().strftime('%Y/%m/%d')}，共 {len(_dl_df)} 筆待生產訂單）"
+_dl_title = f"訂單交期總覽（{datetime.now().strftime('%Y/%m/%d')}，共 {len(_dl_df)} 筆待生產訂單，依出貨日排序）"
 _t0 = ws0.cell(1, 1, _dl_title)
 _t0.font      = Font(bold=True, name='微軟正黑體', size=11, color='FFFFFFFF')
 _t0.fill      = PatternFill("solid", fgColor="FF1A3A5C")

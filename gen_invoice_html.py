@@ -120,6 +120,23 @@ else:
     if shortage_path:
         shortage_date = f'2026/{folder_tag[:2]}/{folder_tag[2:]}'
         shortage_fname = os.path.basename(shortage_path)
+        # 若檔案被 Excel 鎖定，用 Windows robocopy 建立暫存複本
+        try:
+            with open(shortage_path, 'rb') as _f:
+                _f.read(4)
+        except PermissionError:
+            import tempfile, subprocess as _sp
+            _tmp_dir = tempfile.gettempdir()
+            _sp.run(['robocopy', os.path.dirname(shortage_path),
+                     _tmp_dir, shortage_fname, '/NFL', '/NDL', '/NJH', '/NJS'],
+                    capture_output=True)
+            _tmp = os.path.join(_tmp_dir, shortage_fname)
+            if os.path.exists(_tmp):
+                shortage_path = _tmp
+                print('  [警告] 原檔被鎖定，改用暫存複本')
+            else:
+                print('  [警告] 缺料分析檔被Excel鎖定且無法複製，略過缺料頁籤')
+                shortage_path = None
         print(f'缺料分析: {shortage_fname}（{shortage_date}）')
 
 # ══════════════════════════════════════════════════════════════
@@ -272,15 +289,20 @@ def gen_material(path, fname, date_str):
 def gen_pick(path, fname, date_str):
     """須領料"""
     df = pd.read_excel(path, sheet_name='須領料', header=0)
-    # 欄位數依版本不同（10欄含交期，9欄舊版）
-    has_deadline = len(df.columns) >= 10
-    if has_deadline:
+    # 欄位數依版本：11欄(含出貨日+交期) / 10欄(含交期) / 9欄(舊版)
+    ncols = len(df.columns)
+    if ncols >= 11:
+        df.columns = ['品項','品號','品名','機台','生產時間','出貨日','交期','訂單量','差異(生產量)','製令單號','批號']
+        has_ship = True; has_deadline = True
+    elif ncols >= 10:
         df.columns = ['品項','品號','品名','機台','生產時間','交期','訂單量','差異(生產量)','製令單號','批號']
+        has_ship = False; has_deadline = True
     else:
         df.columns = ['品項','品號','品名','機台','生產時間','訂單量','差異(生產量)','製令單號','批號']
+        has_ship = False; has_deadline = False
     data_count = 0
     rows_html  = ''
-    colspan = 10 if has_deadline else 9
+    colspan = 11 if has_ship else (10 if has_deadline else 9)
     for _, r in df.iterrows():
         item = str(r['品項']) if pd.notna(r['品項']) else ''
         if not item or item == 'nan': continue
@@ -289,7 +311,8 @@ def gen_pick(path, fname, date_str):
             continue
         if item == '品項': continue
         data_count += 1
-        dl_td = f'<td>{esc(r.get("交期",""))}</td>' if has_deadline else ''
+        ship_td = f'<td>{esc(r.get("出貨日",""))}</td>' if has_ship else ''
+        dl_td   = f'<td>{esc(r.get("交期",""))}</td>'   if has_deadline else ''
         rows_html += (
             f'<tr>'
             f'<td>{esc(item)}</td>'
@@ -297,6 +320,7 @@ def gen_pick(path, fname, date_str):
             f'<td style="font-size:12px">{esc(r["品名"])}</td>'
             f'<td>{esc(r["機台"])}</td>'
             f'<td>{esc(r["生產時間"])}</td>'
+            f'{ship_td}'
             f'{dl_td}'
             f'<td class="num">{fnum(r["訂單量"])}</td>'
             f'<td class="num">{fnum(r["差異(生產量)"])}</td>'
@@ -310,12 +334,13 @@ def gen_pick(path, fname, date_str):
         f'<strong style="color:#1a56a0">{data_count}</strong> 筆須領料訂單</span>'
         f'</div>\n'
     )
-    dl_th = '<th>交期</th>' if has_deadline else ''
+    ship_th = '<th>出貨日</th>' if has_ship else ''
+    dl_th   = '<th>交期</th>'   if has_deadline else ''
     table = (
         f'<div class="table-wrap" style="margin:10px 18px 24px">'
         f'<div class="table-scroll"><table><thead><tr>'
         f'<th>品項</th><th>品號</th><th>品名</th><th>機台</th><th>生產時間</th>'
-        f'{dl_th}'
+        f'{ship_th}{dl_th}'
         f'<th class="num">訂單量</th><th class="num">差異</th><th>製令單號</th><th>批號</th>'
         f'</tr></thead><tbody>\n{rows_html}</tbody></table></div></div>'
     )

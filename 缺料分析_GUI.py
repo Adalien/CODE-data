@@ -821,6 +821,8 @@ class App(tk.Tk):
             self._log_write(f'✅  分析完成！  [{now}]', 'done')
             self._log_write(f'   結果檔案：{result_path}', 'done')
             self.status_lbl.config(text=f'✅ 完成 {now}', fg=C['ok_fg'])
+            # ── 自動寫入執行紀錄到 chat_content.txt ──
+            self._write_run_log(now, result_path, orders, materials, shortage, prepared)
             # 自動更新進貨明細查詢網頁
             def _update_html():
                 try:
@@ -849,6 +851,20 @@ class App(tk.Tk):
         else:
             self._log_write(f'⚠  執行結束（代碼: {rc}）請檢查上方 log', 'warn')
             self.status_lbl.config(text=f'⚠ 請檢查 log  {now}', fg=C['warn_fg'])
+
+    def _write_run_log(self, now, result_path, orders, materials, shortage, prepared):
+        """每次執行完成後，自動將結果寫入 chat_content.txt"""
+        try:
+            chat_file = os.path.join(BASE, 'C:UsersadminOneDrive桌面CODE資料chat_content.txt')
+            run_date  = datetime.now().strftime('%Y%m%d')
+            line = (f"\n=== FILE: {run_date}_run ===\n"
+                    f"MSG: 缺料分析執行完成 [{datetime.now().strftime('%Y-%m-%d %H:%M')}]\n"
+                    f"MSG: 結果：訂單={orders}筆 材料={materials}項 缺料={shortage}項 已備料={prepared}筆\n"
+                    f"MSG: 輸出檔案：{result_path}\n")
+            with open(chat_file, 'a', encoding='utf-8') as f:
+                f.write(line)
+        except Exception as e:
+            self._log_write(f'⚠  寫入執行紀錄失敗: {e}', 'warn')
 
     def _recolor_stat(self, widget, key, color):
         try:
