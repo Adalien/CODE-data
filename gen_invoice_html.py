@@ -107,6 +107,9 @@ if inv_path:
     date_min = min(dates) if dates else ''
     date_max = max(dates) if dates else ''
     raw_json = json.dumps(df2.to_dict(orient='records'), ensure_ascii=False, separators=(',',':'))
+    # 把 JavaScript NaN/Infinity literal 換成 null，否則 JS 字串操作會出錯
+    import re as _re
+    raw_json = _re.sub(r':(?:NaN|-?Infinity)\b', ':null', raw_json)
     inv_fname = os.path.basename(inv_path)
     print(f'  → {len(df2)} 筆，{date_min} ~ {date_max}')
 
