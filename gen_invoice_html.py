@@ -761,9 +761,36 @@ _NEW_BUILD_PBOM = (
     "  return m;\n"
     "}"
 )
+def _replace_fn_safe(html, fn_name, new_fn):
+    """括號計數法：安全替換完整函式（不被巢狀 {} 誤截斷）"""
+    marker = f'function {fn_name}('
+    start = html.find(marker)
+    if start < 0:
+        return html, False
+    brace_start = html.find('{', start)
+    if brace_start < 0:
+        return html, False
+    depth, pos, in_str = 0, brace_start, None
+    while pos < len(html):
+        c = html[pos]
+        if in_str:
+            if c == in_str and (pos == 0 or html[pos-1] != '\\'):
+                in_str = None
+        elif c in ('"', "'", '`'):
+            in_str = c
+        elif c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                end = pos + 1
+                return html[:start] + new_fn + html[end:], True
+        pos += 1
+    return html, False
+
 if '_buildPBOM' in html:
-    html = re.sub(r'function _buildPBOM\(\)\s*\{.*?\}', _NEW_BUILD_PBOM, html, count=1, flags=re.DOTALL)
-    print('[OK] _buildPBOM 已更新')
+    html, _ok = _replace_fn_safe(html, '_buildPBOM', _NEW_BUILD_PBOM)
+    print('[OK] _buildPBOM 已更新（括號計數法）' if _ok else '[WARN] _buildPBOM 替換失敗')
 
 # ── 注入訂單總表篩選 + 品號 BOM 功能 JS ──────────────────────
 _ORD_JS = r"""
