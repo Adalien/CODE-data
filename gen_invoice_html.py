@@ -441,13 +441,14 @@ def gen_orders(path, fname, date_str):
             cls = 'lack-severe'
         else:
             cls = ''
+        _pno = esc(r.get("品號",""))
         rows_html += (
             f'<tr class="{cls}">'
             f'<td>{ds(r.get("訂單日期",""))}</td>'
             f'<td>{esc(r.get("序列",""))}</td>'
             f'<td>{esc(r.get("通路",""))}</td>'
             f'<td>{esc(r.get("品項",""))}</td>'
-            f'<td style="font-size:12px">{esc(r.get("品號",""))}</td>'
+            f'<td class="ord-pno" style="font-size:12px" onclick="showProductBOM(\'{_pno}\')">{_pno}</td>'
             f'<td style="font-size:12px">{esc(r.get("品名",""))}</td>'
             f'<td>{esc(r.get("機台",""))}</td>'
             f'<td>{esc(r.get("生產時間",""))}</td>'
@@ -467,6 +468,15 @@ def gen_orders(path, fname, date_str):
         f'<span class="stat-badge stat-red" style="margin-left:12px">🔴 交期7天內</span>'
         f'</div>\n'
     )
+    _ord_filter_row = (
+        '<tr class="col-filter-row">'
+        + ''.join(
+            f'<th><input class="col-filter ord-col-filter" data-colidx="{i}"'
+            f' placeholder="篩選" type="text" oninput="ordFilterInput(this)"></th>'
+            for i in range(16)
+        )
+        + '</tr>'
+    )
     table = (
         f'<div class="table-wrap" style="margin:10px 18px 24px">'
         f'<div class="table-scroll"><table><thead><tr>'
@@ -474,7 +484,7 @@ def gen_orders(path, fname, date_str):
         f'<th>品號</th><th>品名</th><th>機台</th><th>生產時間</th>'
         f'<th class="num">訂單量</th><th class="num">生產量</th>'
         f'<th>批號</th><th>製令單號</th><th>領料</th><th>交期</th><th>出貨日</th><th>備註</th>'
-        f'</tr></thead><tbody>\n{rows_html}</tbody></table></div></div>'
+        f'</tr>{_ord_filter_row}</thead><tbody>\n{rows_html}</tbody></table></div></div>'
     )
     return data_source_div(fname, date_str) + stats + table
 
@@ -668,6 +678,81 @@ if _MSRCS:
         _clean_extra, html, flags=re.DOTALL
     )
     print('[OK] 圖片輪播已注入所有分頁')
+
+# ── 注入訂單總表篩選 + 品號 BOM 功能 JS ──────────────────────
+_ORD_JS = r"""
+// ── 訂單總表欄位篩選 ──────────────────────────────────────────
+var ordColFilters = {};
+function ordFilterInput(inp) {
+  ordColFilters[inp.dataset.colidx] = inp.value.trim().toLowerCase();
+  applyOrdFilter();
+}
+function applyOrdFilter() {
+  document.querySelectorAll('#tab-orders tbody tr').forEach(function(row) {
+    if (row.classList.contains('section-header')) { row.style.display = ''; return; }
+    var show = true;
+    Object.keys(ordColFilters).forEach(function(idx) {
+      var kw = ordColFilters[idx];
+      if (!kw) return;
+      var td = row.cells[parseInt(idx)];
+      if (td && !td.textContent.toLowerCase().includes(kw)) show = false;
+    });
+    row.style.display = show ? '' : 'none';
+  });
+}
+// ── 訂單品號 BOM 彈窗（逆向查詢：成品 → 所需原料）─────────────
+var _PBOM = null;
+function _buildPBOM() {
+  var nm = {};
+  RAW_DATA.forEach(function(r) { if (r['品號'] && r['品名']) nm[r['品號']] = r['品名']; });
+  var m = {};
+  Object.keys(BOM_DATA).forEach(function(mc) {
+    BOM_DATA[mc].forEach(function(p) {
+      var pno = p['主件品號']; if (!m[pno]) m[pno] = [];
+      m[pno].push({ mc: mc, mn: nm[mc] || '', qty: p['組成用量'], loss: p['損耗率'] });
+    });
+  });
+  return m;
+}
+function showProductBOM(pno) {
+  if (!_PBOM) _PBOM = _buildPBOM();
+  var items = _PBOM[pno] || [];
+  document.getElementById('bomTitle').textContent = '品號：' + pno;
+  if (!items.length) {
+    document.getElementById('bomSub').textContent = '此成品在 BOM 表中無對應原料';
+    document.getElementById('bomContent').innerHTML =
+      '<div class="bom-empty">查無 BOM 資料<br><small>可能為特殊訂製品或品號未建 BOM</small></div>';
+  } else {
+    document.getElementById('bomSub').textContent = '此成品共需 ' + items.length + ' 種原料：';
+    document.getElementById('bomContent').innerHTML =
+      '<table><thead><tr>' +
+      '<th>原料品號</th><th>原料品名</th>' +
+      '<th style="text-align:right">組成用量</th><th style="text-align:right">損耗率</th>' +
+      '</tr></thead><tbody>' +
+      items.map(function(r) {
+        return '<tr><td>' + escHtml(r.mc) + '</td><td style="font-size:12px">' + escHtml(r.mn) +
+               '</td><td class="num">' + (r.qty || 0) + '</td><td class="num">' + (r.loss || 0) + '%</td></tr>';
+      }).join('') + '</tbody></table>';
+  }
+  document.getElementById('bomOverlay').classList.add('show');
+}
+"""
+# 注入在 function init() 之前（只注入一次）
+if 'ordColFilters' not in html:
+    _init_fn = html.find('function init()')
+    if _init_fn >= 0:
+        html = html[:_init_fn] + _ORD_JS + '\n' + html[_init_fn:]
+        print('[OK] 訂單總表篩選 + BOM 功能 JS 已注入')
+
+# ── 注入 ord-pno CSS（只注入一次）────────────────────────────
+_ORD_CSS = '''
+  /* ── 訂單總表 品號可點擊 ── */
+  td.ord-pno { cursor: pointer; color: #2563eb; text-decoration: underline; }
+  td.ord-pno:hover { color: #1d4ed8; background: #eff6ff; }
+'''
+if 'td.ord-pno' not in html:
+    html = html.replace('</style>', _ORD_CSS + '\n</style>', 1)
+    print('[OK] ord-pno CSS 已注入')
 
 # ── 更新進貨明細資料（RAW_DATA）──────────────────────────────
 if raw_json:
