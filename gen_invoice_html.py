@@ -702,6 +702,69 @@ if _MSRCS:
     )
     print('[OK] 圖片輪播已注入所有分頁')
 
+# ── 建立原料品名對照表 MAT_NAME_DATA ──────────────────────────
+# 來源：原料類品號.XLSX（1100+筆），讓 BOM 彈窗的原料品名不再空白
+_mat_name_map = {}
+
+_mat_files = sorted(
+    glob.glob(os.path.join(BASE,    '原料類品號*.xlsx')) +
+    glob.glob(os.path.join(BASE,    '原料類品號*.XLSX')) +
+    glob.glob(os.path.join(DESKTOP, '原料類品號*.xlsx')) +
+    glob.glob(os.path.join(DESKTOP, '原料類品號*.XLSX')),
+    key=os.path.getmtime
+)
+if _mat_files:
+    try:
+        _mdf = pd.read_excel(_mat_files[-1], header=2)
+        for _, _r in _mdf.iterrows():
+            _c = str(_r.iloc[0]).strip()
+            _n = str(_r.iloc[1]).strip() if len(_r) > 1 else ''
+            if _c and _n and _c not in ('nan', 'None') and _n not in ('nan', 'None'):
+                _mat_name_map[_c] = _n
+        print(f'  原料品名對照：{len(_mat_name_map)} 筆（{os.path.basename(_mat_files[-1])}）')
+    except Exception as _me:
+        print(f'  [警告] 原料類品號讀取失敗: {_me}')
+else:
+    print('  [警告] 找不到原料類品號.XLSX，BOM 品名可能不完整')
+
+_mat_name_json = json.dumps(_mat_name_map, ensure_ascii=False, separators=(',', ':'))
+
+# 注入/更新 MAT_NAME_DATA（每次重跑都更新）
+if 'var MAT_NAME_DATA' not in html:
+    _init_fn2 = html.find('function init()')
+    if _init_fn2 >= 0:
+        html = html[:_init_fn2] + f'var MAT_NAME_DATA = {_mat_name_json};\n' + html[_init_fn2:]
+        print('[OK] MAT_NAME_DATA 已注入')
+else:
+    html = re.sub(
+        r'var MAT_NAME_DATA = \{[^;]*?\};',
+        f'var MAT_NAME_DATA = {_mat_name_json};',
+        html, count=1, flags=re.DOTALL
+    )
+    print('[OK] MAT_NAME_DATA 已更新')
+
+# 每次重跑都更新 _buildPBOM（確保使用 MAT_NAME_DATA + 品號備援）
+_NEW_BUILD_PBOM = (
+    "function _buildPBOM() {\n"
+    "  var nm = {};\n"
+    "  if (typeof MAT_NAME_DATA !== 'undefined') {\n"
+    "    Object.keys(MAT_NAME_DATA).forEach(function(k) { nm[k] = MAT_NAME_DATA[k]; });\n"
+    "  }\n"
+    "  RAW_DATA.forEach(function(r) { if (r['品號'] && r['品名']) nm[r['品號']] = r['品名']; });\n"
+    "  var m = {};\n"
+    "  Object.keys(BOM_DATA).forEach(function(mc) {\n"
+    "    BOM_DATA[mc].forEach(function(p) {\n"
+    "      var pno = p['主件品號']; if (!m[pno]) m[pno] = [];\n"
+    "      m[pno].push({ mc: mc, mn: nm[mc] || mc, qty: p['組成用量'], loss: p['損耗率'] });\n"
+    "    });\n"
+    "  });\n"
+    "  return m;\n"
+    "}"
+)
+if '_buildPBOM' in html:
+    html = re.sub(r'function _buildPBOM\(\)\s*\{.*?\}', _NEW_BUILD_PBOM, html, count=1, flags=re.DOTALL)
+    print('[OK] _buildPBOM 已更新')
+
 # ── 注入訂單總表篩選 + 品號 BOM 功能 JS ──────────────────────
 _ORD_JS = r"""
 // ── 訂單總表欄位篩選 ──────────────────────────────────────────
@@ -727,12 +790,18 @@ function applyOrdFilter() {
 var _PBOM = null;
 function _buildPBOM() {
   var nm = {};
+  // 1. 原料類品號對照表（最完整）
+  if (typeof MAT_NAME_DATA !== 'undefined') {
+    Object.keys(MAT_NAME_DATA).forEach(function(k) { nm[k] = MAT_NAME_DATA[k]; });
+  }
+  // 2. 進貨明細覆蓋（最新進貨品名優先）
   RAW_DATA.forEach(function(r) { if (r['品號'] && r['品名']) nm[r['品號']] = r['品名']; });
   var m = {};
   Object.keys(BOM_DATA).forEach(function(mc) {
     BOM_DATA[mc].forEach(function(p) {
       var pno = p['主件品號']; if (!m[pno]) m[pno] = [];
-      m[pno].push({ mc: mc, mn: nm[mc] || '', qty: p['組成用量'], loss: p['損耗率'] });
+      // 名稱空白時顯示品號本身，不顯示空白
+      m[pno].push({ mc: mc, mn: nm[mc] || mc, qty: p['組成用量'], loss: p['損耗率'] });
     });
   });
   return m;
