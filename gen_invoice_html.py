@@ -554,6 +554,110 @@ if shortage_path:
     print('更新已備料頁籤...')
     html = replace_tab(html, 'tab-ready',     gen_ready(shortage_path, shortage_fname, shortage_date))
 
+# ── 注入圖片輪播（所有分頁，每次重新產生都確保不消失）────────────
+import base64 as _b64
+
+def _load_mascot_srcs():
+    _imgs = [
+        ('1-150622200A8-50.jpg',                 'image/jpeg'),
+        ('6a540aa3b8d6c1f69ef324319831a652.gif', 'image/gif'),
+        ('CakeEmotion_0087830.gif',              'image/gif'),
+        ('好想兔-賤.gif',                          'image/gif'),
+    ]
+    _out = []
+    for _fn, _mt in _imgs:
+        _p = os.path.join(BASE, _fn)
+        if os.path.exists(_p):
+            with open(_p, 'rb') as _f:
+                _out.append(f'data:{_mt};base64,{_b64.b64encode(_f.read()).decode()}')
+    return _out
+
+def _remove_div_by_id(html, mid):
+    """找到 id=mid 的 div，連同外層 wrapper 一起移除"""
+    pid = html.find(f'id="{mid}"')
+    if pid < 0:
+        return html
+    od = html.rfind('<div', 0, pid)
+    d, p = 0, od
+    while True:
+        nd = html.find('<div', p)
+        nc = html.find('</div>', p)
+        if nc < 0:
+            break
+        if nd >= 0 and nd < nc:
+            d += 1
+            p = html.find('>', nd) + 1
+        else:
+            d -= 1
+            if d == 0:
+                return html[:od] + html[nc + 6:]
+            p = nc + 6
+    return html
+
+_MSRCS = _load_mascot_srcs()
+if _MSRCS:
+    _IS = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;transition:opacity 0.3s;'
+    def _imgs_html():
+        return ''.join(
+            f'<img src="{_s}" style="{_IS}opacity:{"1" if _i == 0 else "0"};">'
+            for _i, _s in enumerate(_MSRCS)
+        )
+
+    # 1. filterMascot for 進貨明細：移除舊的，插在 btn-row 後面（filter-row 最後一個 flex item）
+    html = re.sub(r'<div[^>]+id="filterMascot"[^>]*>.*?</div>', '', html, flags=re.DOTALL)
+    _FM = (
+        '<div id="filterMascot" style="flex:0 0 auto;width:260px;height:110px;'
+        'position:relative;border-radius:8px;overflow:hidden;">'
+        + _imgs_html() + '</div>'
+    )
+    # 清除按鈕是 btn-row 的最後一個子元素，找到 </div> 結尾插入
+    html = re.sub(
+        r'(onclick="doClear\(\)">清除</button>\s*</div>)',
+        r'\1\n    ' + _FM,
+        html, count=1
+    )
+
+    # 2. 其他分頁：float:right mascot，放在各 tab 開頭
+    _OTHER_TABS = ['tab-orders', 'tab-shortage', 'tab-inventory',
+                   'tab-material', 'tab-pick', 'tab-ready']
+    for _tid in _OTHER_TABS:
+        _mid = f'mascot-{_tid}'
+        html = _remove_div_by_id(html, _mid)
+        _MBOX = (
+            f'<div style="float:right;margin:0 18px 8px 0;">'
+            f'<div id="{_mid}" style="width:260px;height:110px;position:relative;'
+            f'border-radius:8px;overflow:hidden;">{_imgs_html()}</div></div>'
+        )
+        _otag = f'<div id="{_tid}" class="tab-content">'
+        if _otag in html:
+            html = html.replace(_otag, _otag + '\n' + _MBOX, 1)
+
+    # 3. 確保只有一個輪播 JS
+    html = re.sub(
+        r'//\s*──\s*賤兔輪播.*?document\.addEventListener\(.*?\}\);\s*\}\);',
+        '', html, flags=re.DOTALL
+    )
+    html = re.sub(
+        r"document\.addEventListener\('DOMContentLoaded',\s*function\(\)\{\s*var cur\s*=\s*0;.*?\}\);\s*\}\);",
+        '', html, flags=re.DOTALL
+    )
+    _SLIDESHOW = (
+        "\n// ── 賤兔輪播 ─────────────────────────────────────────────\n"
+        "document.addEventListener('DOMContentLoaded',function(){\n"
+        "  var cur=0;\n"
+        "  setInterval(function(){\n"
+        "    document.querySelectorAll('[id=\"filterMascot\"],[id^=\"mascot-tab-\"]').forEach(function(box){\n"
+        "      box.querySelectorAll('img').forEach(function(img,i){img.style.opacity=(i===cur)?'1':'0';});\n"
+        "    });\n"
+        "    cur=(cur+1)%4;\n"
+        "  },3000);\n"
+        "});"
+    )
+    _lsc = html.rfind('</script>')
+    if _lsc >= 0:
+        html = html[:_lsc] + _SLIDESHOW + '\n' + html[_lsc:]
+    print('[OK] 圖片輪播已注入所有分頁')
+
 # ── 更新進貨明細資料（RAW_DATA）──────────────────────────────
 if raw_json:
     print('更新進貨明細 RAW_DATA...')
