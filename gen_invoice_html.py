@@ -56,7 +56,9 @@ def data_source_div(fname, date_str):
 # ══════════════════════════════════════════════════════════════
 inv_candidates = (
     glob.glob(os.path.join(BASE,    '廠商進貨明細表*.xlsx')) +
-    glob.glob(os.path.join(DESKTOP, '廠商進貨明細表*.xlsx'))
+    glob.glob(os.path.join(BASE,    '供應商進貨明細表*.xlsx')) +
+    glob.glob(os.path.join(DESKTOP, '廠商進貨明細表*.xlsx')) +
+    glob.glob(os.path.join(DESKTOP, '供應商進貨明細表*.xlsx'))
 )
 # 依修改時間排序（最新的排最後），避免空格檔名排序問題
 inv_candidates = sorted(inv_candidates, key=os.path.getmtime)
