@@ -570,18 +570,36 @@ if shortage_path:
 import base64 as _b64
 
 def _load_mascot_srcs():
-    _imgs = [
-        ('1-150622200A8-50.jpg',                 'image/jpeg'),
-        ('6a540aa3b8d6c1f69ef324319831a652.gif', 'image/gif'),
-        ('CakeEmotion_0087830.gif',              'image/gif'),
-        ('好想兔-賤.gif',                          'image/gif'),
-    ]
+    """掃描 輪播圖片/ 資料夾，自動載入所有圖片（jpg/jpeg/gif/png/webp）"""
+    _MIME = {'.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif',
+             '.png':'image/png','.webp':'image/webp'}
+    _folder = os.path.join(BASE, '輪播圖片')
+    # 備援：若資料夾不存在，回退到舊的根目錄固定檔名
+    if not os.path.isdir(_folder):
+        _legacy = [
+            ('1-150622200A8-50.jpg',                 'image/jpeg'),
+            ('6a540aa3b8d6c1f69ef324319831a652.gif', 'image/gif'),
+            ('CakeEmotion_0087830.gif',              'image/gif'),
+            ('好想兔-賤.gif',                          'image/gif'),
+        ]
+        _out = []
+        for _fn, _mt in _legacy:
+            _p = os.path.join(BASE, _fn)
+            if os.path.exists(_p):
+                with open(_p, 'rb') as _f:
+                    _out.append(f'data:{_mt};base64,{_b64.b64encode(_f.read()).decode()}')
+        return _out
+    # 掃資料夾（照檔名排序，確保順序穩定）
     _out = []
-    for _fn, _mt in _imgs:
-        _p = os.path.join(BASE, _fn)
-        if os.path.exists(_p):
-            with open(_p, 'rb') as _f:
-                _out.append(f'data:{_mt};base64,{_b64.b64encode(_f.read()).decode()}')
+    for _fn in sorted(os.listdir(_folder)):
+        _ext = os.path.splitext(_fn)[1].lower()
+        if _ext not in _MIME:
+            continue
+        _p = os.path.join(_folder, _fn)
+        _mt = _MIME[_ext]
+        with open(_p, 'rb') as _f:
+            _out.append(f'data:{_mt};base64,{_b64.b64encode(_f.read()).decode()}')
+    print(f'  輪播圖片：載入 {len(_out)} 張（{", ".join(sorted(os.listdir(_folder)))}）')
     return _out
 
 def _remove_div_by_id(html, mid):
@@ -649,15 +667,18 @@ if _MSRCS:
             html = html.replace(_otag, _otag + '\n' + _MBOX, 1)
 
     # 3. 清除孤立殘碼 + 確保只有一個輪播 JS（附在 init() 之後）
+    #    圖片數量從 DOM 讀取，換圖不需改 JS
+    _nimgs = len(_MSRCS) if _MSRCS else 4
     _SLIDESHOW = (
         "\n// ── 賤兔輪播 ─────────────────────────────────────────────\n"
         "document.addEventListener('DOMContentLoaded',function(){\n"
         "  var cur=0;\n"
+        f"  var nimgs={_nimgs};\n"
         "  setInterval(function(){\n"
         "    document.querySelectorAll('[id=\"filterMascot\"],[id^=\"mascot-tab-\"]').forEach(function(box){\n"
         "      box.querySelectorAll('img').forEach(function(img,i){img.style.opacity=(i===cur)?'1':'0';});\n"
         "    });\n"
-        "    cur=(cur+1)%4;\n"
+        "    cur=(cur+1)%nimgs;\n"
         "  },3000);\n"
         "});"
     )
