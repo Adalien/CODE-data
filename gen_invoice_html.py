@@ -632,15 +632,7 @@ if _MSRCS:
         if _otag in html:
             html = html.replace(_otag, _otag + '\n' + _MBOX, 1)
 
-    # 3. 確保只有一個輪播 JS
-    html = re.sub(
-        r'//\s*──\s*賤兔輪播.*?document\.addEventListener\(.*?\}\);\s*\}\);',
-        '', html, flags=re.DOTALL
-    )
-    html = re.sub(
-        r"document\.addEventListener\('DOMContentLoaded',\s*function\(\)\{\s*var cur\s*=\s*0;.*?\}\);\s*\}\);",
-        '', html, flags=re.DOTALL
-    )
+    # 3. 清除孤立殘碼 + 確保只有一個輪播 JS（附在 init() 之後）
     _SLIDESHOW = (
         "\n// ── 賤兔輪播 ─────────────────────────────────────────────\n"
         "document.addEventListener('DOMContentLoaded',function(){\n"
@@ -653,9 +645,24 @@ if _MSRCS:
         "  },3000);\n"
         "});"
     )
-    _lsc = html.rfind('</script>')
-    if _lsc >= 0:
-        html = html[:_lsc] + _SLIDESHOW + '\n' + html[_lsc:]
+    # 找 init(); 的位置，之後到第一個 </script> 之間的所有殘碼全部替換成乾淨的 SLIDESHOW
+    _init_pos = html.find('init();')
+    _first_close = html.find('</script>', _init_pos) if _init_pos >= 0 else -1
+    if _init_pos >= 0 and _first_close >= 0:
+        html = (html[:_init_pos + len('init();')]
+                + '\n' + _SLIDESHOW + '\n'
+                + html[_first_close:])
+    # 移除孤立的第二個 <script>...</script> 塊（緊接在 </body> 前，只含殘碼）
+    def _clean_extra(m):
+        inner = m.group(2).strip()
+        if ('DOMContentLoaded' in inner or 'cur = (cur+1)' in inner
+                or 'cur=(cur+1)' in inner or inner == ''):
+            return m.group(1) + m.group(3)
+        return m.group(0)
+    html = re.sub(
+        r'(</script>[\s\S]*?)<script>([\s\S]*?)</script>(\s*</body>)',
+        _clean_extra, html, flags=re.DOTALL
+    )
     print('[OK] 圖片輪播已注入所有分頁')
 
 # ── 更新進貨明細資料（RAW_DATA）──────────────────────────────

@@ -1380,24 +1380,16 @@ function updateSummary() {
 // ── 啟動 ───────────────────────────────────────────────────
 init();
 
-
+// ── 賤兔輪播 ─────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded',function(){
+  var cur=0;
+  setInterval(function(){
+    document.querySelectorAll('[id="filterMascot"],[id^="mascot-tab-"]').forEach(function(box){
+      box.querySelectorAll('img').forEach(function(img,i){img.style.opacity=(i===cur)?'1':'0';});
     });
-    cur = (cur+1) % 4;
-  }, 3000);
+    cur=(cur+1)%4;
+  },3000);
 });
-    // 更新其他分頁（每組4張）
-    var groups = document.querySelectorAll('[style*="float:right"]');
-    groups.forEach(function(g){
-      var imgs = g.querySelectorAll('img');
-      imgs.forEach(function(img, i){ img.style.opacity = (i===cur)?'1':'0'; });
-    });
-    cur = (cur+1) % total;
-  }, 3000);
-});
-    cur = (cur + 1) % perGroup;
-  }, 3000);
-});
-
 </script>
 
 <div class="bom-overlay" id="bomOverlay" onclick="closeBOM(event)">
@@ -1410,37 +1402,6 @@ init();
 </div>
 
 
-<script>
 
-    cur = (cur+1) % 4;
-  }, 3000);
-});
-    // 更新其他分頁（每組4張）
-    var groups = document.querySelectorAll('[style*="float:right"]');
-    groups.forEach(function(g){
-      var imgs = g.querySelectorAll('img');
-      imgs.forEach(function(img, i){ img.style.opacity = (i===cur)?'1':'0'; });
-    });
-    cur = (cur+1) % total;
-  }, 3000);
-});
-
-
-    cur = (cur+1) % 4;
-  }, 3000);
-});
-
-
-// ── 賤兔輪播 ─────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded',function(){
-  var cur=0;
-  setInterval(function(){
-    document.querySelectorAll('[id="filterMascot"],[id^="mascot-tab-"]').forEach(function(box){
-      box.querySelectorAll('img').forEach(function(img,i){img.style.opacity=(i===cur)?'1':'0';});
-    });
-    cur=(cur+1)%4;
-  },3000);
-});
-</script>
 </body>
 </html>
