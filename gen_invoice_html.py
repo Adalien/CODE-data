@@ -617,16 +617,20 @@ if _MSRCS:
         html, count=1
     )
 
-    # 2. 其他分頁：float:right mascot，放在各 tab 開頭
+    # 2. 其他分頁：與第一分頁相同的白色 filter-card 框，圖片在右側
     _OTHER_TABS = ['tab-orders', 'tab-shortage', 'tab-inventory',
                    'tab-material', 'tab-pick', 'tab-ready']
     for _tid in _OTHER_TABS:
         _mid = f'mascot-{_tid}'
         html = _remove_div_by_id(html, _mid)
+        # 與進貨明細 filter-card 相同視覺：白底圓角陰影，圖片 flex item 在最右側
         _MBOX = (
-            f'<div style="float:right;margin:0 18px 8px 0;">'
-            f'<div id="{_mid}" style="width:260px;height:110px;position:relative;'
-            f'border-radius:8px;overflow:hidden;">{_imgs_html()}</div></div>'
+            f'<div class="filter-card" style="display:flex;align-items:flex-end;">'
+            f'<div style="flex:1;"></div>'
+            f'<div id="{_mid}" style="flex:0 0 auto;width:260px;height:110px;'
+            f'position:relative;border-radius:8px;overflow:hidden;">'
+            f'{_imgs_html()}</div>'
+            f'</div>'
         )
         _otag = f'<div id="{_tid}" class="tab-content">'
         if _otag in html:
