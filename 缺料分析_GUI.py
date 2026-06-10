@@ -826,7 +826,7 @@ class App(tk.Tk):
             # 自動更新進貨明細查詢網頁
             def _update_html():
                 try:
-                    gen_script = os.path.join(BASE, 'gen_invoice_html.py')
+                    gen_script = os.path.join(BASE, 'gen_html_v2.py')
                     if os.path.exists(gen_script):
                         self.after(0, self._log_write, '🔄  更新進貨明細查詢網頁...', 'info')
                         r = subprocess.run([PYTHON, gen_script],
